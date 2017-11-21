@@ -14,7 +14,7 @@
 /* #include <vector> */
 #include <map>
 #include <list>
-/* #include <algorithm> */
+#include <algorithm>
 /* #include <iostream> */
 
 
@@ -182,7 +182,7 @@ const std::string file::readContent()
 }
 
 
-struct log4x_key_t
+struct log4x_value_t
 {
     bool           enable;
     std::string    key;
@@ -206,13 +206,12 @@ struct log4x_key_t
     /* std::list<std::pair<time_t, std::string> > _historyLogs; */
 
 
-    log4x_key_t()
+    log4x_value_t()
     {
         /* _curFileCreateTime = 0; */
         /* _curFileCreateDay = 0; */
         /* _curFileIndex = 0; */
         /* _curWriteLen = 0; */
-        /* _logReserveTime = 0; */
         enable    = false;
         path      = LOG4X_DEFAULT_OUTFILE;
         level     = LOG4X_DEFAULT_LEVEL;
@@ -221,6 +220,8 @@ struct log4x_key_t
         monthdir  = LOG4X_DEFAULT_MONTHDIR;
         limitsize = LOG4X_DEFAULT_LIMITSIZE;
         fileLine  = LOG4X_DEFAULT_FILELINE;
+
+        /* reserveTime = 0; */
     }
 };
 
@@ -294,7 +295,7 @@ thread::entry()
  * log4x
  */
 
-typedef std::map<std::string, log4x_key_t> loggers;
+typedef std::map<std::string, log4x_value_t> loggers;
 
 class log4x : public thread, public ilog4x
 {
@@ -346,9 +347,12 @@ protected:
 
 protected:
     int                parse(const std::string &str);
-    int                parse(const std::string &str, std::map<std::string, log4x_key_t> &keys);
-    int                parse(const std::string &line, int number, std::string &key, std::map<std::string, log4x_key_t> &keys);
-    int                parse(const std::string &line, int number, std::string &key, log4x_key_t &val);
+    int                parse(const std::string &str, std::map<std::string, log4x_value_t> &values);
+    void               parse(const std::string &line, int number, std::string &key, std::map<std::string, log4x_value_t> &values);
+
+    int                split(const std::string &str, const std::string &delimiter, std::pair<std::string, std::string> &pair);
+    void               trim(std::string &str, const std::string &ignore = std::string("\r\n\t "));
+
     std::string        process()
     {
         return "";
@@ -356,6 +360,8 @@ protected:
 
 private:
     loggers           _loggers;
+    std::mutex        _loggers_mtx;
+
     int               _hotInterval;
 
     long              _totalCount;
@@ -430,13 +436,14 @@ int log4x::parse(const std::string &str)
 
     if (sum == _checksum)
     {
+        /* no changed */
         return true;
     }
+
     _checksum = sum;
 
-
-    std::map<std::string, log4x_key_t> keys;
-    if (!parse(str, keys))
+    std::map<std::string, log4x_value_t> values;
+    if (parse(str, values) < 0)
     {
         printf(" !!! !!! !!! !!!\r\n");
         printf(" !!! !!! log4z load config file error \r\n");
@@ -445,74 +452,51 @@ int log4x::parse(const std::string &str)
         return -1;
     }
 
-    for (std::map<std::string, log4x_key_t>::const_iterator iter = keys.begin(); iter != keys.end(); ++iter)
+    /* parse ok, we copy it */
     {
-        std::map<std::string, log4x_key_t>::iterator i = _loggers.find(iter->first);
-        if (i != _loggers.end())
-        {
-            /* i->second.key = iter->second.key; */
-            i->second = iter->second;
-            continue;
-        }
+        std::lock_guard<std::mutex> locker(_loggers_mtx);
+        _loggers.clear();
 
-#if 0
-        id = findLogger(iter->second._key.c_str());
-        if (id == LOG4Z_INVALID_LOGGER_ID)
-        {
-            if (isUpdate)
-            {
-                continue;
-            }
-            else
-            {
-                id = createLogger(iter->second._key.c_str());
-                if (id == LOG4Z_INVALID_LOGGER_ID)
-                {
-                    continue;
-                }
-            }
-        }
+        _loggers = values;
 
-        enableLogger(id, iter->second._enable);
-        setLoggerName(id, iter->second._name.c_str());
-        setLoggerPath(id, iter->second._path.c_str());
-        setLoggerLevel(id, iter->second._level);
-        setLoggerFileLine(id, iter->second._fileLine);
-        setLoggerDisplay(id, iter->second._display);
-        setLoggerOutFile(id, iter->second._outfile);
-        setLoggerLimitsize(id, iter->second._limitsize);
-        setLoggerMonthdir(id, iter->second._monthdir);
+#if 0 
+        for (std::map<std::string, log4x_value_t>::const_iterator iter = _loggers.begin(); iter != _loggers.end(); ++iter)
+        {
+            std::cout << "key: " << iter->second.key << "\tlevel: " << iter->second.level << std::endl;
+        }
 #endif
     }
 
     return 0;
 }
 
-int log4x::parse(const std::string &content, std::map<std::string, log4x_key_t> &keys)
+int log4x::parse(const std::string &content, std::map<std::string, log4x_value_t> &values)
 {
     std::string key;
     int curLine = 1;
     std::string line;
     std::string::size_type curPos = 0;
+
     if (content.empty())
     {
-        return 0;
+        return -1;
     }
+
     do
     {
         std::string::size_type pos = std::string::npos;
         for (std::string::size_type i = curPos; i < content.length(); ++i)
         {
-            //support linux/unix/windows LRCF
+            /* support linux/unix/windows LRCF */
             if (content[i] == '\r' || content[i] == '\n')
             {
                 pos = i;
                 break;
             }
         }
+
         line = content.substr(curPos, pos - curPos);
-        /* parseConfigLine(line, curLine, key, keys); */
-        parse(line, curLine, key, keys);
+        parse(line, curLine, key, values);
 
         curLine++;
 
@@ -520,193 +504,259 @@ int log4x::parse(const std::string &content, std::map<std::string, log4x_key_t> 
         {
             break;
         }
-        else
-        {
-            curPos = pos + 1;
-        }
+
+        curPos = pos + 1;
     }
     while (1);
 
     return 0;
 }
 
-int
-log4x::parse(const std::string &line, int number, std::string &key, log4x_key_t &val)
+void log4x::parse(const std::string& line, int number, std::string & key, std::map<std::string, log4x_value_t> & values)
 {
+    /* std::cout << "line: " << line << "number: " << number << std::endl; */
+    std::pair<std::string, std::string> kv;
+    split(line, "=", kv);
 
-    return 0;
-}
-
-int log4x::parse(const std::string& line, int number, std::string & key, std::map<std::string, log4x_key_t> & keys)
-{
-#if 0
-    std::pair<std::string, std::string> kv = splitPairString(line, "=");
     if (kv.first.empty())
     {
-        return false;
+        return;
     }
 
-    trimLogConfig(kv.first);
-    trimLogConfig(kv.second);
+    trim(kv.first);
+    trim(kv.second);
+
     if (kv.first.empty() || kv.first.at(0) == '#')
     {
-        return true;
+        return;
     }
 
+    /* std::cout << "kv.first: " << kv.first << "\tkv.second: " << kv.second << std::endl; */
     if (kv.first.at(0) == '[')
     {
-        trimLogConfig(kv.first, "[]");
+        trim(kv.first, "[]");
+
         key = kv.first;
+        std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+        /* std::cout << "key: " << key << std::endl; */
+
+        std::map<std::string, log4x_value_t>::iterator iter = values.find(key);
+        if (iter == values.end())
         {
-            std::string tmpstr = kv.first;
-            std::transform(tmpstr.begin(), tmpstr.end(), tmpstr.begin(), ::tolower);
-            if (tmpstr == "main")
-            {
-                key = "main";
-            }
-        }
-        std::map<std::string, log4x_key_t>::iterator iter = keys.find(key);
-        if (iter == keys.end())
-        {
-            log4x_key_t li;
-            li._enable = true;
-            li._key = key;
-            li._name = key;
-            keys.insert(std::make_pair(li._key, li));
+            log4x_value_t val;
+            val.enable  = true;
+            val.key     = key;
+            values[key] = val;
         }
         else
         {
             printf("log4z configure warning: duplicate logger key:[%s] at line: %d \r\n", key.c_str(), number);
         }
-        return true;
+
+        return;
     }
-    trimLogConfig(kv.first);
-    trimLogConfig(kv.second);
-    std::map<std::string, log4x_key_t>::iterator iter = keys.find(key);
-    if (iter == keys.end())
+
+    trim(kv.first);
+    trim(kv.second);
+
+    std::map<std::string, log4x_value_t>::iterator iter = values.find(key);
+    if (iter == values.end())
     {
         printf("log4z configure warning: not found current logger name:[%s] at line:%d, key=%s, value=%s \r\n",
                key.c_str(), number, kv.first.c_str(), kv.second.c_str());
-        return true;
+        return;
     }
+
     std::transform(kv.first.begin(), kv.first.end(), kv.first.begin(), ::tolower);
-    //! path
+
+    /* path */
     if (kv.first == "path")
     {
-        iter->second._path = kv.second;
-        return true;
+        iter->second.path = kv.second;
+        return;
     }
     else if (kv.first == "name")
     {
-        iter->second._name = kv.second;
-        return true;
+        /* iter->second._name = kv.second; */
+        return;
     }
+
     std::transform(kv.second.begin(), kv.second.end(), kv.second.begin(), ::tolower);
-    //! level
+
+    /* level */
     if (kv.first == "level")
     {
         if (kv.second == "trace" || kv.second == "all")
         {
-            iter->second._level = LOG_LEVEL_TRACE;
+            iter->second.level = LOG_LEVEL_TRACE;
         }
         else if (kv.second == "debug")
         {
-            iter->second._level = LOG_LEVEL_DEBUG;
+            iter->second.level = LOG_LEVEL_DEBUG;
         }
         else if (kv.second == "info")
         {
-            iter->second._level = LOG_LEVEL_INFO;
+            iter->second.level = LOG_LEVEL_INFO;
         }
         else if (kv.second == "warn" || kv.second == "warning")
         {
-            iter->second._level = LOG_LEVEL_WARN;
+            iter->second.level = LOG_LEVEL_WARN;
         }
         else if (kv.second == "error")
         {
-            iter->second._level = LOG_LEVEL_ERROR;
-        }
-        else if (kv.second == "alarm")
-        {
-            iter->second._level = LOG_LEVEL_ALARM;
+            iter->second.level = LOG_LEVEL_ERROR;
         }
         else if (kv.second == "fatal")
         {
-            iter->second._level = LOG_LEVEL_FATAL;
+            iter->second.level = LOG_LEVEL_FATAL;
         }
     }
-    //! display
+
+    /* display */
     else if (kv.first == "display")
     {
         if (kv.second == "false" || kv.second == "0")
         {
-            iter->second._display = false;
+            iter->second.display = false;
         }
         else
         {
-            iter->second._display = true;
+            iter->second.display = true;
         }
     }
-    //! output to file
+
+    /* output to file */
     else if (kv.first == "outfile")
     {
         if (kv.second == "false" || kv.second == "0")
         {
-            iter->second._outfile = false;
+            iter->second.outfile = false;
         }
         else
         {
-            iter->second._outfile = true;
+            iter->second.outfile = true;
         }
     }
-    //! monthdir
+
+    /* monthdir */
     else if (kv.first == "monthdir")
     {
         if (kv.second == "false" || kv.second == "0")
         {
-            iter->second._monthdir = false;
+            iter->second.monthdir = false;
         }
         else
         {
-            iter->second._monthdir = true;
+            iter->second.monthdir = true;
         }
     }
-    //! limit file size
+
+    /* limit file size */
     else if (kv.first == "limitsize")
     {
-        iter->second._limitsize = atoi(kv.second.c_str());
+        iter->second.limitsize = atoi(kv.second.c_str());
     }
-    //! display log in file line
+
+    /* display log in file line */
     else if (kv.first == "fileline")
     {
         if (kv.second == "false" || kv.second == "0")
         {
-            iter->second._fileLine = false;
+            iter->second.fileLine = false;
         }
         else
         {
-            iter->second._fileLine = true;
+            iter->second.fileLine = true;
         }
     }
-    //! enable/disable one logger
+
+    /* enable/disable one logger */
     else if (kv.first == "enable")
     {
         if (kv.second == "false" || kv.second == "0")
         {
-            iter->second._enable = false;
+            iter->second.enable = false;
         }
         else
         {
-            iter->second._enable = true;
+            iter->second.enable = true;
         }
     }
-    //! set reserve time
+
+    /* set reserve time */
     else if (kv.first == "reserve")
     {
-        iter->second._logReserveTime = atoi(kv.second.c_str());
+        /* iter->second._logReserveTime = atoi(kv.second.c_str()); */
+    }
+}
+
+int
+log4x::split(const std::string &str, const std::string &delimiter, std::pair<std::string, std::string> &pair)
+{
+    std::string::size_type pos = str.find(delimiter.c_str());
+    if (pos == std::string::npos)
+    {
+        pair = std::make_pair(str, "");
+        return 0;
     }
 
-#endif
+    pair = std::make_pair(str.substr(0, pos), str.substr(pos + delimiter.length()));
+
     return 0;
+}
+
+void
+log4x::trim(std::string &str, const std::string &ignore)
+{
+    if (str.empty())
+    {
+        return;
+    }
+
+    size_t length = str.length();
+    size_t begin  = 0;
+    size_t end    = 0;
+
+    /* trim utf8 file bom */
+    if (str.length() >= 3
+            && (unsigned char)str[0] == 0xef
+            && (unsigned char)str[1] == 0xbb
+            && (unsigned char)str[2] == 0xbf)
+    {
+        begin = 3;
+    }
+
+    /* trim character */
+    for (size_t i = begin ; i < length; i++)
+    {
+        bool ischk = false;
+        for (size_t j = 0; j < ignore.length(); j++)
+        {
+            if (str[i] == ignore[j])
+            {
+                ischk = true;
+            }
+        }
+        if (ischk)
+        {
+            if (i == begin)
+            {
+                begin ++;
+            }
+        }
+        else
+        {
+            end = i + 1;
+        }
+    }
+    if (begin < end)
+    {
+        str = str.substr(begin, end - begin);
+    }
+    else
+    {
+        str.clear();
+    }
 }
 
 int
