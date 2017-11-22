@@ -121,10 +121,12 @@ public:
     {
         _file = NULL;
     }
+
     ~file()
     {
         close();
     }
+
     inline bool isOpen()
     {
         return _file != NULL;
@@ -151,6 +153,7 @@ public:
 
         return -1;
     }
+
     inline void clean(int index, int len)
     {
 #if !defined(__APPLE__) && !defined(WIN32)
@@ -239,7 +242,7 @@ struct log4x_value_t
     bool           outfile;
     bool           monthdir;
     long           limitsize;                              /* Mb */
-    bool           fileLine;
+    bool           fileline;
 
     file           fhandle;                                /* file handle. */
     time_t         ftime;                                  /* file create time */
@@ -249,7 +252,6 @@ struct log4x_value_t
     /* time_t         logReserveTime; */
 
     /* time_t         curFileCreateTime;    //file create time */
-    /* time_t         _curFileCreateDay;    //file create day time */
 
     //!history
     /* std::list<std::pair<time_t, std::string> > _historyLogs; */
@@ -265,7 +267,7 @@ struct log4x_value_t
         outfile   = LOG4X_DEFAULT_OUTFILE;
         monthdir  = LOG4X_DEFAULT_MONTHDIR;
         limitsize = LOG4X_DEFAULT_LIMITSIZE;
-        fileLine  = LOG4X_DEFAULT_FILELINE;
+        fileline  = LOG4X_DEFAULT_FILELINE;
 
         ftime     = 0;
         findex    = 0;
@@ -993,7 +995,7 @@ protected:
         {
             return 0;
         }
-    
+
         for (std::string::iterator iter = path.begin(); iter != path.end(); ++iter)
         {
             if (*iter == '\\')
@@ -1028,6 +1030,19 @@ protected:
         }
 
         return true;
+    }
+
+    inline tm time2tm(time_t t)
+    {
+#ifdef WIN32
+        tm tt = {0};
+        localtime_s(&tt, &t);
+        return tt;
+#else
+        tm tt = {0};
+        localtime_r(&t, &tt);
+        return tt;
+#endif
     }
 
 private:
@@ -1079,7 +1094,6 @@ log4x::~log4x()
 
 }
 
-class file;
 int
 log4x::config(const char * path)
 {
@@ -1144,9 +1158,10 @@ int log4x::parse(const std::string &str)
         std::lock_guard<std::mutex> locker(_loggers_mtx);
         _loggers.clear();
 
-        _loggers = values;
+        /* _loggers = values; */
+        _loggers.swap(values);
 
-#if 1
+#if 0
         for (std::map<std::string, log4x_value_t>::const_iterator iter = _loggers.begin(); iter != _loggers.end(); ++iter)
         {
             std::cout << "key: " << iter->second.key.c_str() << "\tlevel: " << iter->second.level << std::endl;
@@ -1349,11 +1364,11 @@ void log4x::parse(const std::string& line, int number, std::string & key, std::m
     {
         if (kv.second == "false" || kv.second == "0")
         {
-            iter->second.fileLine = false;
+            iter->second.fileline = false;
         }
         else
         {
-            iter->second.fileLine = true;
+            iter->second.fileline = true;
         }
     }
 
@@ -1466,7 +1481,6 @@ log4x::prepush(const char * key, int level)
         return -1;
     }
 
-    log4x_value_t value;
     {
         std::lock_guard<std::mutex> locker(_loggers_mtx);
 
@@ -1478,12 +1492,10 @@ log4x::prepush(const char * key, int level)
             return -1;
         }
 
-        value = iter->second;
-    }
-
-    if (level < value.level)
-    {
-        return -1;
+        if (level < iter->second.level)
+        {
+            return -1;
+        }
     }
 
     {
@@ -1576,22 +1588,8 @@ log4x::make(const char * key, int level)
 
     /* format log */
     {
-        tm lt;
-#ifdef _WIN32
-        localtime_s(&lt, &log->time);
-#else
-        localtime_r(&log->time, &lt);
-#endif
-#if 0
-        printf("%d-%d-%d %d:%d:%d.%d\n",
-               lt.tm_year + 1900,
-               lt.tm_mon + 1,
-               lt.tm_mday,
-               lt.tm_hour,
-               lt.tm_min,
-               lt.tm_sec,
-               log->msec);
-#endif
+        tm lt = time2tm(log->time);
+
         Log4zStream ls(log->buf, LOG4X_LOG_BUF_SIZE);
         ls.writeULongLong(lt.tm_year + 1900, 4);
         ls.writeChar('-');
@@ -1668,7 +1666,7 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
         return -1;
     }
 
-    if (_loggers[log->key].fileLine && file)
+    if (_loggers[log->key].fileline && file)
     {
         const char * end   = file + strlen(file);
         const char * begin = end;
@@ -1688,10 +1686,11 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
         while (true);
 
         Log4zStream ss(log->buf + log->len, LOG4X_LOG_BUF_SIZE - log->len);
-        ss.writeChar(' ');
+        ss.writeString(" [", 2);
         ss.writeString(begin, end - begin);
         ss.writeChar(':');
         ss.writeULongLong((unsigned long long)line);
+        ss.writeChar(']');
         log->len += ss.length();
     }
 
@@ -1722,10 +1721,10 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
         std::lock_guard<std::mutex> locker(_loggers_mtx);
         if (0 == open(log))
         {
-#if 0
             _loggers[log->key].fhandle.write(log->buf, log->len);
             _loggers[log->key].flen += log->len;
 
+#if 0
             /* close(log->key); */
             /* _ullStatusTotalWriteFileCount++; */
             /* _ullStatusTotalWriteFileBytes += log->len; */
@@ -1815,10 +1814,16 @@ int log4x::open(log4x_t * log)
         return -1;
     }
 
-#if 0
-    bool sameday = log->_time >= value->_curFileCreateDay && log->_time - value->_curFileCreateDay < 24 * 3600;
-    bool needChageFile = value->flen > value->_limitsize * 1024 * 1024;
-    if (!sameday || needChageFile)
+    tm lt = time2tm(log->time);
+    tm ct = time2tm(value->ftime);
+    bool sameday = !(
+                       (lt.tm_year == ct.tm_year) &&
+                       (lt.tm_mon  == ct.tm_mon)  &&
+                       (lt.tm_mday == ct.tm_mday)
+                   );
+
+    bool newfile = value->flen > (size_t)(value->limitsize * 1024 * 1024);
+    if (!sameday || newfile)
     {
         if (!sameday)
         {
@@ -1828,35 +1833,19 @@ int log4x::open(log4x_t * log)
         {
             value->findex++;
         }
+
         if (value->fhandle.isOpen())
         {
             value->fhandle.close();
         }
     }
-#endif
 
     if (!value->fhandle.isOpen())
     {
         value->ftime = log->time;
         value->flen  = 0;
 
-#if 0
-        tm t = timeToTm(value->ftime);
-        if (true) //process day time
-        {
-            tm day = t;
-            day.tm_hour = 0;
-            day.tm_min = 0;
-            day.tm_sec = 0;
-            value->_curFileCreateDay = mktime(&day);
-        }
-#endif
-        tm lt;
-#ifdef _WIN32
-        localtime_s(&lt, &log->time);
-#else
-        localtime_r(&log->time, &lt);
-#endif
+        tm lt = time2tm(log->time);
 
         std::string key;
         std::string path;
@@ -1894,8 +1883,6 @@ int log4x::open(log4x_t * log)
         path += buf;
 
         long flen = value->fhandle.open(path.c_str(), "ab");
-        printf("path -----------------%s\n", path.c_str());
-#if 0
         if (!value->fhandle.isOpen() || flen < 0)
         {
             sprintf(buf, "log4z: can not open log file %s. \r\n", path.c_str());
@@ -1908,7 +1895,6 @@ int log4x::open(log4x_t * log)
         }
 
         value->flen = flen;
-
 #if 0
         if (value->_logReserveTime > 0)
         {
@@ -1925,8 +1911,7 @@ int log4x::open(log4x_t * log)
                 value->_historyLogs.push_back(std::make_pair(time(NULL), path));
             }
         }
-        return true;
-#endif
+        return 0;
 #endif
     }
 
@@ -1974,18 +1959,17 @@ log4x::run()
 #endif
 
     LOGI("-----------------  log4x thread started!   ----------------------------");
-    LOGI("-----------------  log4x thread started!   ----------------------------");
 
-    /* for (std::map<std::string, log4x_value_t>::const_iterator iter = _loggers.begin(); iter != _loggers.end(); ++iter) */
-    /* { */
-    /*     if (_loggers[iter->first].enable) */
-    /*     { */
-    /*         LOGI("key\t" << _loggers[iter->first].key << "\n" */
-    /*              << "path\t" << _loggers[iter->first].path << "\n" */
-    /*              << "level\t" << _loggers[iter->first].level << "\n" */
-    /*              << "display\t" << _loggers[iter->first].display << "\n"); */
-    /*     } */
-    /* } */
+    for (std::map<std::string, log4x_value_t>::const_iterator iter = _loggers.begin(); iter != _loggers.end(); ++iter)
+    {
+        if (_loggers[iter->first].enable)
+        {
+            LOGI("key: " << _loggers[iter->first].key << "\t"
+                 << "path: " << _loggers[iter->first].path << "\t"
+                 << "level: " << _loggers[iter->first].level << "\t"
+                 << "display: " << _loggers[iter->first].display);
+        }
+    }
 #if 0
     _semaphore.post();
 
@@ -2093,14 +2077,6 @@ log4x::run()
     }
 
 #endif
-    {
-
-        std::lock_guard<std::mutex> locker(_loggers_mtx);
-        for (std::map<std::string, log4x_value_t>::const_iterator iter = _loggers.begin(); iter != _loggers.end(); ++iter)
-        {
-            close(iter->first);
-        }
-    }
 }
 
 /**

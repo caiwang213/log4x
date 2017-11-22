@@ -5,5 +5,5 @@ all:
 
 clean:
 	@echo Cleaning up...
-	@rm *.o bin/log4x 
+	@rm   bin/log4x 
 	@echo Done.
