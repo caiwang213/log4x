@@ -55,7 +55,6 @@ struct log4x_t
 }
 #endif
 
-
 #define LOG4X_DEFAULT_PATH             ("./log/")
 #define LOG4X_DEFAULT_LEVEL            (LOG_LEVEL_DEBUG)
 #define LOG4X_DEFAULT_DISPLAY          (true)
@@ -63,14 +62,15 @@ struct log4x_t
 #define LOG4X_DEFAULT_MONTHDIR         (false)
 #define LOG4X_DEFAULT_LIMITSIZE        (100)
 #define LOG4X_DEFAULT_FILELINE         (true)
+#define LOG4X_DEFAULT_RESERVE          (24*3600)
 
-#define LOG4X_FORCE_RESERVE_FILE_COUNT (7)
+#define LOG4X_LOG_KEY_MAX              (20)
 #define LOG4X_LOG_QUEUE_LIMIT_SIZE     (20000)
 #define LOG4X_LOG_BUF_SIZE             (1024*4)
 #define LOG4X_LOG_CONTAINER_DEPTH      (5)
+#define LOG4X_RESERVE_FILE_COUNT       (7)
 
-/* #define LOG4X_ALL_SYNCHRONOUS_OUTPUT   (false) */
-#define LOG4X_ALL_SYNCHRONOUS_OUTPUT   (true)
+#define LOG4X_ALL_SYNCHRONOUS_OUTPUT   (false)
 #define LOG4X_ALL_DEBUGOUTPUT_DISPLAY  (false)
 
 enum
@@ -142,20 +142,17 @@ public:
     virtual void       free(log4x_t * log) = 0;
     virtual int        prepush(const char * key, int level) = 0;
     virtual int        push(log4x_t * log, const char * func, const char * file = "", int line = 0) = 0;
-#if 0
-    virtual int        find(const char* key) = 0;
-
 
     virtual int        enable(const char * key, bool enable) = 0;
-    virtual int        setname(const char * key, const char * name) = 0;
     virtual int        setpath(const char * key, const char * path) = 0;
     virtual int        setlevel(const char * key, int level) = 0;
     virtual int        setfileLine(const char * key, bool enable) = 0;
     virtual int        setdisplay(const char * key, bool enable) = 0;
     virtual int        setoutFile(const char * key, bool enable) = 0;
     virtual int        setlimit(const char * key, unsigned int limitsize) = 0;
-    virtual int        setMonthdir(const char * key, bool enable) = 0;
-    virtual int        setReserveTime(const char * key, time_t sec) = 0;
+    virtual int        setmonthdir(const char * key, bool enable) = 0;
+    virtual int        setReserve(const char * key, time_t sec) = 0;
+#if 0
     virtual int        setAutoUpdate(int interval) = 0;
     virtual int        updateConfig() = 0;
 
