@@ -11,7 +11,8 @@ void f0(int n, const char *key)
 {
     while (run)
     {
-        LOG_TRACE(key, "thread: " << n);
+        /* LOG_TRACE(key, "thread: " << n); */
+        LOGF_TRACE(key, "thread: %d", n);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
@@ -20,7 +21,8 @@ void f1(int n, const char *key)
 {
     while (run)
     {
-        LOG_DEBUG(key, "thread: " << n);
+        /* LOG_DEBUG(key, "thread: " << n); */
+        LOGF_DEBUG(key, "thread: %d", n);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
@@ -29,7 +31,8 @@ void f2(int n, const char *key)
 {
     while (run)
     {
-        LOG_INFO(key, "thread: " << n);
+        /* LOG_INFO(key, "thread: " << n); */
+        LOGF_INFO(key, "thread: %d", n);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
@@ -38,7 +41,8 @@ void f3(int n, const char *key)
 {
     while (run)
     {
-        LOG_WARN(key, "thread: " << n);
+        /* LOG_WARN(key, "thread: " << n); */
+        LOGF_WARN(key, "thread: %d", n);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }

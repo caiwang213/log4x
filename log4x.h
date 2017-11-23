@@ -28,11 +28,7 @@
 #include <deque>
 
 #ifdef WIN32
-/* #include <io.h> */
-/* #include <shlwapi.h> */
-/* #include <process.h> */
-/* #pragma comment(lib, "shlwapi") */
-/* #pragma comment(lib, "User32.lib") */
+#pragma warning(disable:4200)
 #pragma warning(disable:4996)
 #endif
 
@@ -92,7 +88,7 @@ do \
     if (log4x::ilog4x::instance()->prepush(key, level)) \
     {\
         log4x_t * __log = log4x::ilog4x::instance()->make(key, level); \
-        Log4zStream __ss(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len); \
+        Stream __ss(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len); \
         __ss << log; \
         __log->len += __ss.length(); \
         log4x::ilog4x::instance()->push(__log, func, file, line); \
@@ -116,6 +112,47 @@ do \
 #define LOGE(log) LOG_ERROR("main", log )
 #define LOGF(log) LOG_FATAL("main", log )
 
+#ifdef WIN32
+#define LOG_FORMAT(key, level, func, file, line, logformat, ...) \
+do{ \
+    if (log4x::ilog4x::instance()->prepush(key, level)) \
+    {\
+        log4x_t * __log = log4x::ilog4x::instance()->make(key, level); \
+        unsigned long __length = _snprintf_s(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len, _TRUNCATE, logformat, ##__VA_ARGS__); \
+        if (__length < 0) __length = LOG4X_LOG_BUF_SIZE - __log->len; \
+        __log->len += __length; \
+        log4x::ilog4x::instance()->push(__log, func, file, line); \
+    }\
+} while (0)
+#else
+#define LOG_FORMAT(key, level, func, file, line, logformat, ...) \
+do{ \
+    if (log4x::ilog4x::instance()->prepush(key,level)) \
+    {\
+        log4x_t * __log = log4x::ilog4x::instance()->make(key, level); \
+        unsigned long __length = snprintf(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len, logformat, ##__VA_ARGS__); \
+        if (__length < 0) __length = 0; \
+        if (__length > LOG4X_LOG_BUF_SIZE - __log->len) __length = LOG4X_LOG_BUF_SIZE - __log->len; \
+        __log->len += __length; \
+        log4x::ilog4x::instance()->push(__log, func, file, line); \
+    } \
+}while(0)
+#endif
+
+/* format string */
+#define LOGF_TRACE(key, fmt, ...)  LOG_FORMAT(key, LOG_LEVEL_TRACE, __FUNCTION__, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOGF_DEBUG(key, fmt, ...)  LOG_FORMAT(key, LOG_LEVEL_DEBUG, __FUNCTION__, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOGF_INFO(key,  fmt, ...)  LOG_FORMAT(key, LOG_LEVEL_INFO,  __FUNCTION__, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOGF_WARN(key,  fmt, ...)  LOG_FORMAT(key, LOG_LEVEL_WARN,  __FUNCTION__, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOGF_ERROR(key, fmt, ...)  LOG_FORMAT(key, LOG_LEVEL_ERROR, __FUNCTION__, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOGF_FATAL(key, fmt, ...)  LOG_FORMAT(key, LOG_LEVEL_FATAL, __FUNCTION__, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+
+#define LOGFT( fmt, ...) LOGFMT_TRACE("main", fmt,  ##__VA_ARGS__)
+#define LOGFD( fmt, ...) LOGFMT_DEBUG("main", fmt,  ##__VA_ARGS__)
+#define LOGFI( fmt, ...) LOGFMT_INFO ("main", fmt,  ##__VA_ARGS__)
+#define LOGFW( fmt, ...) LOGFMT_WARN ("main", fmt,  ##__VA_ARGS__)
+#define LOGFE( fmt, ...) LOGFMT_ERROR("main", fmt,  ##__VA_ARGS__)
+#define LOGFF( fmt, ...) LOGFMT_FATAL("main", fmt,  ##__VA_ARGS__)
 
 namespace log4x
 {
@@ -151,7 +188,7 @@ public:
     virtual int        setoutFile(const char * key, bool enable) = 0;
     virtual int        setlimit(const char * key, unsigned int limitsize) = 0;
     virtual int        setmonthdir(const char * key, bool enable) = 0;
-    virtual int        setReserve(const char * key, time_t sec) = 0;
+    virtual int        setReserve(const char * key, unsigned int sec) = 0;
 #if 0
     virtual int        setAutoUpdate(int interval) = 0;
     virtual int        updateConfig() = 0;
@@ -174,10 +211,10 @@ public:
 };
 
 #ifdef _MACRO
-class Log4zBinary
+class Binary
 {
 public:
-    Log4zBinary(const void * buf, size_t len)
+    Binary(const void * buf, size_t len)
     {
         this->buf = (const char *)buf;
         this->len = len;
@@ -186,10 +223,10 @@ public:
     size_t  len;
 };
 
-class Log4zString
+class String
 {
 public:
-    Log4zString(const char * buf, size_t len)
+    String(const char * buf, size_t len)
     {
         this->buf = (const char *)buf;
         this->len = len;
@@ -198,126 +235,126 @@ public:
     size_t  len;
 };
 
-class Log4zStream
+class Stream
 {
 public:
-    inline Log4zStream(char * buf, int len);
+    inline Stream(char * buf, int len);
     inline int length()
     {
         return (int)(_cur - _begin);
     }
 public:
-    inline Log4zStream & writeLongLong(long long t, int width = 0, int dec = 10);
-    inline Log4zStream & writeULongLong(unsigned long long t, int width = 0, int dec = 10);
-    inline Log4zStream & writeDouble(double t, bool isSimple);
-    inline Log4zStream & writePointer(const void * t);
-    inline Log4zStream & writeString(const char * t)
+    inline Stream & writeLongLong(long long t, int width = 0, int dec = 10);
+    inline Stream & writeULongLong(unsigned long long t, int width = 0, int dec = 10);
+    inline Stream & writeDouble(double t, bool isSimple);
+    inline Stream & writePointer(const void * t);
+    inline Stream & writeString(const char * t)
     {
         return writeString(t, strlen(t));
     };
-    inline Log4zStream & writeString(const char * t, size_t len);
-    inline Log4zStream & writeChar(char ch);
-    inline Log4zStream & writeBinary(const Log4zBinary & t);
+    inline Stream & writeString(const char * t, size_t len);
+    inline Stream & writeChar(char ch);
+    inline Stream & writeBinary(const Binary & t);
 public:
-    inline Log4zStream & operator <<(const void * t)
+    inline Stream & operator <<(const void * t)
     {
         return  writePointer(t);
     }
 
-    inline Log4zStream & operator <<(const char * t)
+    inline Stream & operator <<(const char * t)
     {
         return writeString(t);
     }
 
-    inline Log4zStream & operator <<(bool t)
+    inline Stream & operator <<(bool t)
     {
         return (t ? writeString("true", 4) : writeString("false", 5));
     }
 
-    inline Log4zStream & operator <<(char t)
+    inline Stream & operator <<(char t)
     {
         return writeChar(t);
     }
 
-    inline Log4zStream & operator <<(unsigned char t)
+    inline Stream & operator <<(unsigned char t)
     {
         return writeULongLong(t);
     }
 
-    inline Log4zStream & operator <<(short t)
+    inline Stream & operator <<(short t)
     {
         return writeLongLong(t);
     }
 
-    inline Log4zStream & operator <<(unsigned short t)
+    inline Stream & operator <<(unsigned short t)
     {
         return writeULongLong(t);
     }
 
-    inline Log4zStream & operator <<(int t)
+    inline Stream & operator <<(int t)
     {
         return writeLongLong(t);
     }
 
-    inline Log4zStream & operator <<(unsigned int t)
+    inline Stream & operator <<(unsigned int t)
     {
         return writeULongLong(t);
     }
 
-    inline Log4zStream & operator <<(long t)
+    inline Stream & operator <<(long t)
     {
         return writeLongLong(t);
     }
 
-    inline Log4zStream & operator <<(unsigned long t)
+    inline Stream & operator <<(unsigned long t)
     {
         return writeULongLong(t);
     }
 
-    inline Log4zStream & operator <<(long long t)
+    inline Stream & operator <<(long long t)
     {
         return writeLongLong(t);
     }
 
-    inline Log4zStream & operator <<(unsigned long long t)
+    inline Stream & operator <<(unsigned long long t)
     {
         return writeULongLong(t);
     }
 
-    inline Log4zStream & operator <<(float t)
+    inline Stream & operator <<(float t)
     {
         return writeDouble(t, true);
     }
 
-    inline Log4zStream & operator <<(double t)
+    inline Stream & operator <<(double t)
     {
         return writeDouble(t, false);
     }
 
     template<class _Elem, class _Traits, class _Alloc> //support std::string, std::wstring
-    inline Log4zStream & operator <<(const std::basic_string<_Elem, _Traits, _Alloc> & t)
+    inline Stream & operator <<(const std::basic_string<_Elem, _Traits, _Alloc> & t)
     {
         return writeString(t.c_str(), t.length());
     }
 
-    inline Log4zStream & operator << (const Log4zBinary & binary)
+    inline Stream & operator << (const Binary & binary)
     {
         return writeBinary(binary);
     }
 
-    inline Log4zStream & operator << (const Log4zString & str)
+    inline Stream & operator << (const String & str)
     {
         return writeString(str.buf, str.len);
     }
 
     template<class _Ty1, class _Ty2>
-    inline Log4zStream & operator <<(const std::pair<_Ty1, _Ty2> & t)
+    inline Stream & operator <<(const std::pair<_Ty1, _Ty2> & t)
     {
         return *this << "pair(" << t.first << ":" << t.second << ")";
     }
 
     template<class _Elem, class _Alloc>
-    inline Log4zStream & operator <<(const std::vector<_Elem, _Alloc> & t)
+    inline Stream & operator <<(const std::vector<_Elem, _Alloc> & t)
     {
         *this << "vector(" << t.size() << ")[";
         int inputCount = 0;
@@ -339,7 +376,7 @@ public:
     }
 
     template<class _Elem, class _Alloc>
-    inline Log4zStream & operator <<(const std::list<_Elem, _Alloc> & t)
+    inline Stream & operator <<(const std::list<_Elem, _Alloc> & t)
     {
         *this << "list(" << t.size() << ")[";
         int inputCount = 0;
@@ -361,7 +398,7 @@ public:
     }
 
     template<class _Elem, class _Alloc>
-    inline Log4zStream & operator <<(const std::deque<_Elem, _Alloc> & t)
+    inline Stream & operator <<(const std::deque<_Elem, _Alloc> & t)
     {
         *this << "deque(" << t.size() << ")[";
         int inputCount = 0;
@@ -382,7 +419,7 @@ public:
         return *this << "]";
     }
     template<class _Elem, class _Alloc>
-    inline Log4zStream & operator <<(const std::queue<_Elem, _Alloc> & t)
+    inline Stream & operator <<(const std::queue<_Elem, _Alloc> & t)
     {
         *this << "queue(" << t.size() << ")[";
         int inputCount = 0;
@@ -403,7 +440,7 @@ public:
         return *this << "]";
     }
     template<class _K, class _V, class _Pr, class _Alloc>
-    inline Log4zStream & operator <<(const std::map<_K, _V, _Pr, _Alloc> & t)
+    inline Stream & operator <<(const std::map<_K, _V, _Pr, _Alloc> & t)
     {
         *this << "map(" << t.size() << ")[";
         int inputCount = 0;
@@ -425,14 +462,14 @@ public:
     }
 
 private:
-    Log4zStream() {}
-    Log4zStream(Log4zStream &) {}
+    Stream() {}
+    Stream(Stream &) {}
     char *  _begin;
     char *  _end;
     char *  _cur;
 };
 
-inline Log4zStream::Log4zStream(char * buf, int len)
+inline Stream::Stream(char * buf, int len)
 {
     _begin = buf;
     _end = buf + len;
@@ -441,7 +478,7 @@ inline Log4zStream::Log4zStream(char * buf, int len)
 
 
 
-inline Log4zStream & Log4zStream::writeLongLong(long long t, int width, int dec)
+inline Stream & Stream::writeLongLong(long long t, int width, int dec)
 {
     if (t < 0)
     {
@@ -452,7 +489,7 @@ inline Log4zStream & Log4zStream::writeLongLong(long long t, int width, int dec)
     return *this;
 }
 
-inline Log4zStream & Log4zStream::writeULongLong(unsigned long long t, int width, int dec)
+inline Stream & Stream::writeULongLong(unsigned long long t, int width, int dec)
 {
     static const char * lut =
         "0123456789abcdef";
@@ -553,7 +590,7 @@ inline Log4zStream & Log4zStream::writeULongLong(unsigned long long t, int width
     }
     return *this;
 }
-inline Log4zStream & Log4zStream::writeDouble(double t, bool isSimple)
+inline Stream & Stream::writeDouble(double t, bool isSimple)
 {
 
 #if __cplusplus >= 201103L
@@ -608,13 +645,13 @@ inline Log4zStream & Log4zStream::writeDouble(double t, bool isSimple)
     return *this;
 }
 
-inline Log4zStream & Log4zStream::writePointer(const void * t)
+inline Stream & Stream::writePointer(const void * t)
 {
     sizeof(t) == 8 ?  writeULongLong((unsigned long long)t, 16, 16) : writeULongLong((unsigned long long)t, 8, 16);
     return *this;
 }
 
-inline Log4zStream & Log4zStream::writeBinary(const Log4zBinary & t)
+inline Stream & Stream::writeBinary(const Binary & t)
 {
     writeString("\r\n\t[");
     for (size_t i = 0; i < (t.len / 32) + 1; i++)
@@ -648,7 +685,7 @@ inline Log4zStream & Log4zStream::writeBinary(const Log4zBinary & t)
     writeString("\r\n\t]\r\n\t");
     return *this;
 }
-inline Log4zStream & Log4zStream::writeChar(char ch)
+inline Stream & Stream::writeChar(char ch)
 {
     if (_end - _cur > 1)
     {
@@ -658,7 +695,7 @@ inline Log4zStream & Log4zStream::writeChar(char ch)
     return *this;
 }
 
-inline Log4zStream & Log4zStream::writeString(const char * t, size_t len)
+inline Stream & Stream::writeString(const char * t, size_t len)
 {
     size_t count = _end - _cur;
     if (len > count)
