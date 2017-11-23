@@ -168,9 +168,6 @@ public:
 public:
     virtual int        config(const char * path)          = 0;
     virtual int        configFromString(const char * str) = 0;
-#if 0
-    virtual int        create(const char * key) = 0;
-#endif
 
     virtual int        start() = 0;
     virtual void       stop()  = 0;
@@ -201,6 +198,7 @@ public:
     virtual long       totalPop()    = 0;
     virtual int        activeCount() = 0;
 #endif
+    virtual bool       isff(const char * key) = 0;
 
 public:
     static ilog4x    * instance();

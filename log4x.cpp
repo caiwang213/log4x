@@ -33,7 +33,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 /* #include <semaphore.h> */
-/* #include <sys/syscall.h> */
+#include <sys/syscall.h>
 #endif
 
 
@@ -55,7 +55,7 @@ static const char *const log4x_level[] =
     "INF",
     "WAR",
     "ERR",
-    "FATL",
+    "FAT",
 };
 
 #ifdef WIN32
@@ -232,6 +232,7 @@ struct log4x_value_t
     bool           fileline;
     long           reserve;                                /* history logs reserve time. second. */
 
+    bool           fromfile;                               /* is from log.cfg file */
     File           fhandle;                                /* file handle. */
     time_t         ftime;                                  /* file create time */
     size_t         flen;                                   /* current file length */
@@ -243,6 +244,7 @@ struct log4x_value_t
     {
         /* _curFileCreateDay = 0; */
         enable    = false;
+        fromfile  = false;
         path      = LOG4X_DEFAULT_PATH;
         level     = LOG4X_DEFAULT_LEVEL;
         display   = LOG4X_DEFAULT_DISPLAY;
@@ -875,6 +877,7 @@ protected:
     virtual long       totalPop()    = 0;
     virtual int        activeCount() = 0;
 #endif
+    virtual bool       isff(const char * key);
 protected:
     virtual void       run();
 
@@ -1110,6 +1113,7 @@ log4x::config(const char * path)
     while (0);
 
     {
+        /* add the main key default */
         std::lock_guard<std::mutex> locker(_keys_mtx);
         if (result < 0 || _keys.find("main") == _keys.end())
         {
@@ -1249,9 +1253,10 @@ void log4x::parse(const std::string& line, int number, std::string & key, std::m
         if (iter == values.end())
         {
             log4x_value_t val;
-            val.enable  = true;
-            val.key     = key;
-            values[key] = val;
+            val.enable   = true;
+            val.fromfile = true;
+            val.key      = key;
+            values[key]  = val;
         }
         else
         {
@@ -1579,12 +1584,24 @@ log4x::make(const char * key, int level)
     }
 
 
-    /* append precise time to log */
     {
+#if 0
         /* note include <sstream> */
         std::stringstream ss;
         ss << std::this_thread::get_id();
-
+        log->tid   = std::stol(ss.str()) & 0xFFFF;
+#else
+#ifdef WIN32
+        log->tid = GetCurrentThreadId();
+#elif defined(__APPLE__)
+        unsigned long long tid = 0;
+        pthread_threadid_np(NULL, &tid);
+        log->tid = (long)tid;
+#else
+        log->tid = (long)syscall(SYS_gettid);
+#endif
+#endif
+        /* append precise time to log */
         timeb tb;
         ftime(&tb);
 
@@ -1592,8 +1609,6 @@ log4x::make(const char * key, int level)
         log->level = level;
         log->type  = LDT_GENERAL;
         log->value = 0;
-        log->tid   = std::stol(ss.str()) & 0xFFFF;
-
         log->time  = tb.time;
         log->msec  = tb.millitm;
     }
@@ -1700,7 +1715,8 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
         while (true);
 
         Stream ss(log->buf + log->len, LOG4X_LOG_BUF_SIZE - log->len);
-        ss.writeString(" [", 2);
+        ss.writeChar(' ');
+        ss.writeChar('[');
         ss.writeString(begin, end - begin);
         ss.writeChar(':');
         ss.writeULongLong((unsigned long long)line);
@@ -2189,7 +2205,6 @@ log4x::setfileLine(const char * key, bool enable)
     }
 
     std::lock_guard<std::mutex> locker(_keys_mtx);
-
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2212,7 +2227,6 @@ log4x::setdisplay(const char * key, bool enable)
     }
 
     std::lock_guard<std::mutex> locker(_keys_mtx);
-
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2235,7 +2249,6 @@ log4x::setoutFile(const char * key, bool enable)
     }
 
     std::lock_guard<std::mutex> locker(_keys_mtx);
-
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2270,7 +2283,6 @@ log4x::setlimit(const char * key, unsigned int limitsize)
     }
 
     std::lock_guard<std::mutex> locker(_keys_mtx);
-
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2293,7 +2305,6 @@ log4x::setmonthdir(const char * key, bool enable)
     }
 
     std::lock_guard<std::mutex> locker(_keys_mtx);
-
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2328,7 +2339,6 @@ log4x::setReserve(const char * key, unsigned int sec)
     }
 
     std::lock_guard<std::mutex> locker(_keys_mtx);
-
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2342,6 +2352,25 @@ log4x::setReserve(const char * key, unsigned int sec)
     return 0;
 }
 
+bool
+log4x::isff(const char * key)
+{
+    if (!key)
+    {
+        LOGE("invalid args");
+    }
+
+    std::lock_guard<std::mutex> locker(_keys_mtx);
+    std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
+    if (iter == _keys.end())
+    {
+        LOGE("the key: " << key << " is not exist");
+
+        return false;
+    }
+
+    return iter->second.fromfile;
+}
 /**
  * ilog4x
  */
