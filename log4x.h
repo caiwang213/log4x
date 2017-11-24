@@ -49,6 +49,18 @@ do { \
 #define LOGFE(fmt, ...) LOGF_ERROR("main", fmt, ##__VA_ARGS__)
 #define LOGFF(fmt, ...) LOGF_FATAL("main", fmt, ##__VA_ARGS__)
 
+#ifdef LOG4X_STATICLIB
+#  define LOG4X_API
+#elif defined(WIN32) || defined(_WIN32)
+#  if defined(LOG4X_EXPORTS)
+#    define LOG4X_API  __declspec(dllexport)
+#  else
+#    define LOG4X_API  __declspec(dllimport)
+#  endif
+#else
+#  define   LOG4X_API
+#endif
+
 enum
 {
     LOG_LEVEL_TRACE = 0,
@@ -63,7 +75,7 @@ namespace log4x
 {
 struct log4x_t;
 
-class ilog4x
+class LOG4X_API ilog4x
 {
 public:
     ilog4x() {};
