@@ -10,6 +10,7 @@
 #include <deque>
 #include <map>
 #include <algorithm>
+#include <condition_variable>
 
 #include <string.h>
 #include <time.h>
@@ -763,13 +764,50 @@ inline Stream & Stream::writeString(const char * t, size_t len)
 #endif
 
 /**
- * thread
+ * Semaphore
  */
-class thread
+class Semaphore
 {
 public:
-    thread();
-    virtual ~thread();
+    Semaphore(long count = 0)
+        : _count(count)
+    {
+    }
+
+    void post()
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        ++_count;
+        _cv.notify_one();
+    }
+
+    int wait(int second)
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_cv.wait_for(lock, std::chrono::seconds(second), [ = ] { return _count > 0; }))
+        {
+            --_count;
+
+            return 0;
+        }
+
+        return -1;
+    }
+
+private:
+    std::mutex              _mutex;
+    std::condition_variable _cv;
+    long _count;
+};
+
+/**
+ * Thread
+ */
+class Thread
+{
+public:
+    Thread();
+    virtual ~Thread();
 
 public:
     int                start();
@@ -787,28 +825,29 @@ protected:
     bool               _active;
     std::thread        _t;
     std::mutex         _mutex;
+    Semaphore          _sem;
 };
 
-thread::thread()
+Thread::Thread()
 {
     _active = false;
 }
 
-thread::~thread()
+Thread::~Thread()
 {
 }
 
 int
-thread::start()
+Thread::start()
 {
-    std::thread t(&thread::entry, this);
+    std::thread t(&Thread::entry, this);
     _t = std::move(t);
 
     return 0;
 }
 
 void
-thread::stop()
+Thread::stop()
 {
     std::lock_guard<std::mutex> locker(_mutex);
     _active = false;
@@ -816,7 +855,7 @@ thread::stop()
 }
 
 void
-thread::entry()
+Thread::entry()
 {
     {
         std::lock_guard<std::mutex> locker(_mutex);
@@ -834,7 +873,7 @@ typedef std::map<std::string, log4x_value_t> log4x_keys_t;
 typedef std::deque<log4x_t *>                log4x_queue_t;
 typedef std::vector<log4x_t *>               log4x_pool_t;
 /* typedef std::list<log4x_t *>                 log4x_pool_t; */
-class log4x : public thread, public ilog4x
+class log4x : public Thread, public ilog4x
 {
 public:
     log4x();
@@ -977,7 +1016,7 @@ protected:
     {
         if (0 == path.length())
         {
-            return 0;
+            return -1;
         }
 
         for (std::string::iterator iter = path.begin(); iter != path.end(); ++iter)
@@ -1013,7 +1052,7 @@ protected:
             pos = path.find('/', pos + 1);
         }
 
-        return true;
+        return 0;
     }
 
     inline tm time2tm(time_t t)
@@ -1145,7 +1184,7 @@ int log4x::parse(const std::string &str)
     if (sum == _checksum)
     {
         /* no changed */
-        return true;
+        return 0;
     }
 
     _checksum = sum;
@@ -1472,13 +1511,17 @@ log4x::trim(std::string &str, const std::string &ignore)
 int
 log4x::start()
 {
-    return thread::start();
+    int result = -1;
+    result += Thread::start();
+    result += _sem.wait(5);
+
+    return result;
 }
 
 void
 log4x::stop()
 {
-    thread::stop();
+    Thread::stop();
 }
 
 int
@@ -1545,7 +1588,7 @@ log4x::prepush(const char * key, int level)
         }
     }
 
-    return true;
+    return 0;
 }
 
 enum
@@ -1671,7 +1714,9 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
         iter = _keys.find(log->key);
         if (iter == _keys.end())
         {
-            printf("[%s] do not find the key: %s [%s:%d]\n",  __FUNCTION__, log->key.c_str(), __FILE__, __LINE__);
+            char text[256] = {0};
+            sprintf(text, "[%s] do not find the key: %s [%s:%d]\r\n",  __FUNCTION__, log->key.c_str(), __FILE__, __LINE__);
+            showColorText(text, LOG_LEVEL_WARN);
 
             free(log);
 
@@ -2014,6 +2059,7 @@ log4x::run()
         }
     }
 
+    _sem.post();
 
     log4x_t * log = NULL;
     /* int needFlush[LOG4X_LOGGER_MAX] = {0}; */
@@ -2123,8 +2169,8 @@ log4x::enable(const char * key, bool enable)
         LOGE("invalid args");
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
-
+    /* The lock has been locked in LOGE, and it will deadlock */
+    /* std::lock_guard<std::mutex> locker(_keys_mtx); */
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2145,8 +2191,6 @@ log4x::setpath(const char * key, const char * path)
     {
         LOGE("invalid args");
     }
-
-    std::lock_guard<std::mutex> locker(_keys_mtx);
 
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
@@ -2180,8 +2224,6 @@ log4x::setlevel(const char * key, int level)
         LOGW("invalid level value: " << level);
         level = LOG_LEVEL_FATAL;
     }
-
-    std::lock_guard<std::mutex> locker(_keys_mtx);
 
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
@@ -2226,7 +2268,6 @@ log4x::setdisplay(const char * key, bool enable)
         LOGE("invalid args");
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2248,7 +2289,6 @@ log4x::setoutFile(const char * key, bool enable)
         LOGE("invalid args");
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2282,7 +2322,6 @@ log4x::setlimit(const char * key, unsigned int limitsize)
         limitsize = LOG4X_DEFAULT_LIMITSIZE;
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2304,7 +2343,6 @@ log4x::setmonthdir(const char * key, bool enable)
         LOGE("invalid args");
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2338,7 +2376,6 @@ log4x::setReserve(const char * key, unsigned int sec)
         sec = LOG4X_DEFAULT_RESERVE * 7;
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {
@@ -2360,7 +2397,6 @@ log4x::isff(const char * key)
         LOGE("invalid args");
     }
 
-    std::lock_guard<std::mutex> locker(_keys_mtx);
     std::map<std::string, log4x_value_t>::iterator iter = _keys.find(key);
     if (iter == _keys.end())
     {

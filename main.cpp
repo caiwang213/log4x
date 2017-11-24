@@ -19,7 +19,6 @@ do \
 } while (0)
 
 
-#define _DEBUG
 #ifdef _DEBUG
 /* setlevel > fromfile */
 #define LOG4X_DEBUG_LEVEL(key, level) LOG_LEVEL(key, level)
@@ -96,16 +95,16 @@ int main(int argc, char *argv[])
 {
     ilog4x *i =  ilog4x::instance();
     i->config("log.ini");
-    i->start();
+    int result = i->start();
 
-    LOG4X_DEBUG_LEVEL("main", LOG_LEVEL_DEBUG);
+    /* LOG4X_DEBUG_LEVEL("main", LOG_LEVEL_DEBUG); */
 
-    std::thread t0(f0, 0, "main");
-    std::thread t1(f1, 1, "main");
-    std::thread t2(f2, 2, "main");
-    std::thread t3(f3, 3, "main");
-    std::thread t4(f4, 4, "main");
-    std::thread t5(f5, 5, "main");
+    /* std::thread t0(f0, 0, "main"); */
+    /* std::thread t1(f1, 1, "main"); */
+    /* std::thread t2(f2, 2, "main"); */
+    /* std::thread t3(f3, 3, "main"); */
+    /* std::thread t4(f4, 4, "main"); */
+    /* std::thread t5(f5, 5, "main"); */
 
     LOG4X_DEBUG_LEVEL("test", LOG_LEVEL_ERROR);
     std::thread tt0(f0, 0, "test");
@@ -119,12 +118,12 @@ int main(int argc, char *argv[])
 
     run = false;
 
-    t0.join();
-    t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
-    t5.join();
+    /* t0.join(); */
+    /* t1.join(); */
+    /* t2.join(); */
+    /* t3.join(); */
+    /* t4.join(); */
+    /* t5.join(); */
 
     tt0.join();
     tt1.join();

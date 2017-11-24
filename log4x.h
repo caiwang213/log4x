@@ -85,7 +85,7 @@ enum
 #define LOG_STREAM(key, level, func, file, line, log) \
 do \
 { \
-    if (log4x::ilog4x::instance()->prepush(key, level)) \
+    if (0 == log4x::ilog4x::instance()->prepush(key, level)) \
     {\
         log4x_t * __log = log4x::ilog4x::instance()->make(key, level); \
         Stream __ss(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len); \
@@ -115,7 +115,7 @@ do \
 #ifdef WIN32
 #define LOG_FORMAT(key, level, func, file, line, logformat, ...) \
 do{ \
-    if (log4x::ilog4x::instance()->prepush(key, level)) \
+    if (0 == log4x::ilog4x::instance()->prepush(key, level)) \
     {\
         log4x_t * __log = log4x::ilog4x::instance()->make(key, level); \
         unsigned long __length = _snprintf_s(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len, _TRUNCATE, logformat, ##__VA_ARGS__); \
@@ -127,7 +127,7 @@ do{ \
 #else
 #define LOG_FORMAT(key, level, func, file, line, logformat, ...) \
 do{ \
-    if (log4x::ilog4x::instance()->prepush(key,level)) \
+    if (0 == log4x::ilog4x::instance()->prepush(key,level)) \
     {\
         log4x_t * __log = log4x::ilog4x::instance()->make(key, level); \
         unsigned long __length = snprintf(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len, logformat, ##__VA_ARGS__); \
