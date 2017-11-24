@@ -14,26 +14,20 @@
 
 #include <string.h>
 #include <time.h>
+#include <stdarg.h>
 #include <sys/timeb.h>
+
 #ifdef WIN32
 #include <windows.h>
-/* #include <io.h> */
 #include <shlwapi.h>
-/* #include <process.h> */
 #pragma comment(lib, "shlwapi")
+#pragma warning(disable:4200)
 #pragma warning(disable:4996)
-
 #else
 #include <unistd.h>
 #include <fcntl.h>
-/* #include <netinet/in.h> */
-/* #include <arpa/inet.h> */
-/* #include <sys/types.h> */
-/* #include <sys/socket.h> */
-/* #include <pthread.h> */
 #include <sys/stat.h>
 #include <dirent.h>
-/* #include <semaphore.h> */
 #include <sys/syscall.h>
 #endif
 
@@ -46,6 +40,37 @@
 #include <libproc.h>
 #endif
 #endif
+
+/* base macro. */
+#define LOG_STREAM(key, level, func, file, line, log) \
+do \
+{ \
+    if (0 == prepush(key, level)) \
+    {\
+        log4x_t * __log = make(key, level); \
+        Stream __ss(__log->buf + __log->len, LOG4X_LOG_BUF_SIZE - __log->len); \
+        __ss << log; \
+        __log->len += __ss.length(); \
+        push(__log, func, file, line); \
+    } \
+} while (0)
+
+
+/* fast macro. */
+#define LOG_TRACE(key, log) LOG_STREAM(key, LOG_LEVEL_TRACE, __FUNCTION__, __FILE__, __LINE__, log)
+#define LOG_DEBUG(key, log) LOG_STREAM(key, LOG_LEVEL_DEBUG, __FUNCTION__, __FILE__, __LINE__, log)
+#define LOG_INFO(key,  log) LOG_STREAM(key, LOG_LEVEL_INFO,  __FUNCTION__, __FILE__, __LINE__, log)
+#define LOG_WARN(key,  log) LOG_STREAM(key, LOG_LEVEL_WARN,  __FUNCTION__, __FILE__, __LINE__, log)
+#define LOG_ERROR(key, log) LOG_STREAM(key, LOG_LEVEL_ERROR, __FUNCTION__, __FILE__, __LINE__, log)
+#define LOG_FATAL(key, log) LOG_STREAM(key, LOG_LEVEL_FATAL, __FUNCTION__, __FILE__, __LINE__, log)
+
+/* super macro. */
+#define LOGT(log) LOG_TRACE("main", log )
+#define LOGD(log) LOG_DEBUG("main", log )
+#define LOGI(log) LOG_INFO ("main", log )
+#define LOGW(log) LOG_WARN ("main", log )
+#define LOGE(log) LOG_ERROR("main", log )
+#define LOGF(log) LOG_FATAL("main", log )
 
 namespace log4x
 {
@@ -81,7 +106,7 @@ const static char *log4x_color[] =
 };
 #endif
 
-#ifndef _MACRO
+/* log4x_t */
 struct log4x_t
 {
     std::string    key;
@@ -96,7 +121,6 @@ struct log4x_t
 
     char           buf[0];
 };
-#endif
 
 /**
  * file
@@ -261,7 +285,6 @@ struct log4x_value_t
     }
 };
 
-#ifndef _MACRO
 class Binary
 {
 public:
@@ -761,7 +784,6 @@ inline Stream & Stream::writeString(const char * t, size_t len)
 
     return *this;
 }
-#endif
 
 /**
  * Semaphore
@@ -781,10 +803,10 @@ public:
         _cv.notify_one();
     }
 
-    int wait(int second)
+    int wait(int msec)
     {
         std::unique_lock<std::mutex> lock(_mutex);
-        if (_cv.wait_for(lock, std::chrono::seconds(second), [ = ] { return _count > 0; }))
+        if (_cv.wait_for(lock, std::chrono::milliseconds(msec), [ = ] { return _count > 0; }))
         {
             --_count;
 
@@ -840,6 +862,12 @@ Thread::~Thread()
 int
 Thread::start()
 {
+    std::lock_guard<std::mutex> locker(_mutex);
+    if (_active)
+    {
+        return -1;
+    }
+
     std::thread t(&Thread::entry, this);
     _t = std::move(t);
 
@@ -850,6 +878,11 @@ void
 Thread::stop()
 {
     std::lock_guard<std::mutex> locker(_mutex);
+    if (!_active)
+    {
+        return;
+    }
+
     _active = false;
     _t.join();
 }
@@ -892,7 +925,9 @@ protected:
     virtual log4x_t  * make(const char * key, int level);
     virtual void       free(log4x_t * log);
     virtual int        prepush(const char * key, int level);
-    virtual int        push(log4x_t * log, const char * func, const char * file = "", int line = 0);
+    virtual int        push(log4x_t * log, const char * func, const char * file, int line);
+
+    virtual int        push(const char * key, int level, const char * func, const char * file, int line, const char* fmt, ...);
 
     virtual int        enable(const char * key, bool enable);
     virtual int        setpath(const char * key, const char * path);
@@ -1114,7 +1149,7 @@ log4x::log4x()
 
 log4x::~log4x()
 {
-
+    stop();
 }
 
 int
@@ -1511,11 +1546,12 @@ log4x::trim(std::string &str, const std::string &ignore)
 int
 log4x::start()
 {
-    int result = -1;
-    result += Thread::start();
-    result += _sem.wait(5);
+    if (Thread::start() < 0)
+    {
+        return -1;
+    }
 
-    return result;
+    return _sem.wait(3000);
 }
 
 void
@@ -1629,11 +1665,6 @@ log4x::make(const char * key, int level)
 
     {
 #if 0
-        /* note include <sstream> */
-        std::stringstream ss;
-        ss << std::this_thread::get_id();
-        log->tid   = std::stol(ss.str()) & 0xFFFF;
-#else
 #ifdef WIN32
         log->tid = GetCurrentThreadId();
 #elif defined(__APPLE__)
@@ -1643,6 +1674,11 @@ log4x::make(const char * key, int level)
 #else
         log->tid = (long)syscall(SYS_gettid);
 #endif
+#else
+        /* note include <sstream> */
+        std::stringstream ss;
+        ss << std::this_thread::get_id();
+        log->tid   = std::stol(ss.str()) & 0xFFFF;
 #endif
         /* append precise time to log */
         timeb tb;
@@ -1661,6 +1697,7 @@ log4x::make(const char * key, int level)
         tm lt = time2tm(log->time);
 
         Stream ls(log->buf, LOG4X_LOG_BUF_SIZE);
+        ls.writeChar('[');
         ls.writeULongLong(lt.tm_year + 1900, 4);
         ls.writeChar('-');
         ls.writeULongLong(lt.tm_mon + 1, 2);
@@ -1674,13 +1711,13 @@ log4x::make(const char * key, int level)
         ls.writeULongLong(lt.tm_sec, 2);
         ls.writeChar('.');
         ls.writeULongLong(log->msec, 3);
-        ls.writeChar(' ');
+        ls.writeChar(']');
         ls.writeChar('[');
         ls.writeULongLong(log->tid, 4);
         ls.writeChar(']');
-
-        ls.writeChar(' ');
+        ls.writeChar('[');
         ls.writeString(log4x_level[log->level], strlen(log4x_level[log->level]));
+        ls.writeChar(']');
         ls.writeChar(' ');
 
         log->len = ls.length();
@@ -1762,6 +1799,8 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
         Stream ss(log->buf + log->len, LOG4X_LOG_BUF_SIZE - log->len);
         ss.writeChar(' ');
         ss.writeChar('[');
+        ss.writeString(func, strlen(func));
+        ss.writeChar(':');
         ss.writeString(begin, end - begin);
         ss.writeChar(':');
         ss.writeULongLong((unsigned long long)line);
@@ -1822,6 +1861,36 @@ log4x::push(log4x_t * log, const char * func, const char * file, int line)
 
 
     return 0;
+}
+
+int
+log4x::push(const char * key, int level, const char * func, const char * file, int line, const char* fmt, ...)
+{
+    va_list args;
+
+    if (0 == prepush(key, level))
+    {
+        log4x_t * log = make(key, level);
+
+        va_start(args, fmt);
+        int length = vsnprintf(log->buf + log->len, LOG4X_LOG_BUF_SIZE - log->len, fmt, args);
+        va_end(args);
+
+        if (length < 0)
+        {
+            length = 0;
+        }
+
+        if (length > (int)(LOG4X_LOG_BUF_SIZE - log->len))
+        {
+            length = LOG4X_LOG_BUF_SIZE - log->len;
+        }
+        log->len += length;
+
+        return push(log, func, file, line);
+    }
+
+    return -1;
 }
 
 log4x_t *
@@ -2064,18 +2133,25 @@ log4x::run()
     log4x_t * log = NULL;
     /* int needFlush[LOG4X_LOGGER_MAX] = {0}; */
     /* time_t lastCheckUpdate = time(NULL); */
-
+    std::map<std::string, bool> fflags;
 
     while (true)
     {
         while ((log = pop()))
         {
-            /* { */
+            std::map<std::string, log4x_value_t>::iterator iter;
+            {
+                std::lock_guard<std::mutex> locker(_keys_mtx);
 
-            /*     std::lock_guard<std::mutex> locker(_keys_mtx); */
-            log4x_value_t &value = _keys[log->key];
-            /* } */
+                iter = _keys.find(log->key);
+                if (iter == _keys.end())
+                {
+                    free(log);
+                    continue;
+                }
+            }
 
+            log4x_value_t &value = iter->second;
             if (log->type != LDT_GENERAL)
             {
                 /* onHotChange(log->key, (log4x_tType)log->_type, log->_typeval, std::string(log->buf, log->len)); */
@@ -2084,7 +2160,6 @@ log4x::run()
                 continue;
             }
 
-            //
             /* _ullStatusTotalPolog ++; */
 
             /* discard */
@@ -2107,7 +2182,6 @@ log4x::run()
 #endif
             }
 
-
             if (value.outfile)
             {
                 if (open(log) < 0)
@@ -2118,7 +2192,7 @@ log4x::run()
 
                 value.fhandle.write(log->buf, log->len);
                 value.flen += (unsigned int)log->len;
-                /* needFlush[log->key] ++; */
+                fflags[log->key] = true;
                 /* _ullStatusTotalWriteFileCount++; */
                 /* _ullStatusTotalWriteFileBytes += log->len; */
             }
@@ -2131,18 +2205,22 @@ log4x::run()
             free(log);
         }
 
-        /* for (int i = 0; i <= _lastId; i++) */
-        /* { */
-        /*     if (_keys[i]._enable && needFlush[i] > 0) */
-        /*     { */
-        /*         _keys[i].fhandle.flush(); */
-        /*         needFlush[i] = 0; */
-        /*     } */
-        /*     if (!_keys[i]._enable && _keys[i].fhandle.isOpen()) */
-        /*     { */
-        /*         _keys[i].fhandle.close(); */
-        /*     } */
-        /* } */
+        {
+            std::lock_guard<std::mutex> locker(_keys_mtx);
+            for (std::map<std::string, log4x_value_t>::const_iterator iter = _keys.begin(); iter != _keys.end(); ++iter)
+            {
+                if (iter->second.enable && fflags[iter->second.key])
+                {
+                    _keys[iter->second.key].fhandle.flush();
+                    fflags[iter->second.key] = false;
+                }
+
+                if (!iter->second.enable && fflags[iter->second.key])
+                {
+                    _keys[iter->second.key].fhandle.close();
+                }
+            }
+        }
 
         if (!_active && _logs.empty())
         {
@@ -2156,7 +2234,6 @@ log4x::run()
         /* } */
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        /* usleep(50000); */
     }
 }
 
@@ -2416,6 +2493,5 @@ ilog4x::instance()
     static log4x log;
     return &log;
 }
-
 
 }
