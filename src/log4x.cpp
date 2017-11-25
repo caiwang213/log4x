@@ -1,19 +1,9 @@
 #include "log4x.h"
-#include <iostream>
-#include <fstream>
+#include "file.h"
+#include "stream.h"
+#include "semaphore.h"
+#include "thread.h"
 #include <sstream>
-#include <thread>
-#include <mutex>
-#include <list>
-#include <vector>
-#include <queue>
-#include <deque>
-#include <map>
-#include <algorithm>
-#include <condition_variable>
-
-#include <string.h>
-#include <time.h>
 #include <stdarg.h>
 #include <sys/timeb.h>
 
@@ -24,13 +14,9 @@
 #pragma warning(disable:4200)
 #pragma warning(disable:4996)
 #else
-#include <unistd.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
-#include <sys/syscall.h>
 #endif
-
 
 #ifdef __APPLE__
 #include "TargetConditionals.h"
@@ -122,126 +108,6 @@ struct log4x_t
     char           buf[0];
 };
 
-/**
- * file
- */
-class File
-{
-public:
-    File()
-    {
-        _file = NULL;
-    }
-
-    ~File()
-    {
-        close();
-    }
-
-    inline bool isOpen()
-    {
-        return _file != NULL;
-    }
-
-    inline long open(const char *path, const char * mod)
-    {
-        if (_file != NULL)
-        {
-            fclose(_file);
-            _file = NULL;
-        }
-
-        _file = fopen(path, mod);
-        if (_file)
-        {
-            long tel = 0;
-            long cur = ftell(_file);
-            fseek(_file, 0L, SEEK_END);
-            tel = ftell(_file);
-            fseek(_file, cur, SEEK_SET);
-            return tel;
-        }
-
-        return -1;
-    }
-
-    inline void clean(int index, int len)
-    {
-#if !defined(__APPLE__) && !defined(WIN32)
-        if (_file != NULL)
-        {
-            int fd = fileno(_file);
-            fsync(fd);
-            posix_fadvise(fd, index, len, POSIX_FADV_DONTNEED);
-            fsync(fd);
-        }
-#endif
-    }
-    inline void close()
-    {
-        if (_file != NULL)
-        {
-            clean(0, 0);
-            fclose(_file);
-            _file = NULL;
-        }
-    }
-    inline void write(const char * data, size_t len)
-    {
-        if (_file && len > 0)
-        {
-            if (fwrite(data, 1, len, _file) != len)
-            {
-                close();
-            }
-        }
-    }
-    inline void flush()
-    {
-        if (_file)
-        {
-            fflush(_file);
-        }
-    }
-
-    inline std::string readLine()
-    {
-        char buf[500] = { 0 };
-        if (_file && fgets(buf, 500, _file) != NULL)
-        {
-            return std::string(buf);
-        }
-        return std::string();
-    }
-    inline const std::string readContent();
-    inline bool removeFile(const std::string & path)
-    {
-        return ::remove(path.c_str()) == 0;
-    }
-public:
-    FILE *_file;
-};
-
-const std::string File::readContent()
-{
-    std::string content;
-
-    if (!_file)
-    {
-        return content;
-    }
-    char buf[BUFSIZ];
-    size_t ret = 0;
-    do
-    {
-        ret = fread(buf, sizeof(char), BUFSIZ, _file);
-        content.append(buf, ret);
-    }
-    while (ret == BUFSIZ);
-
-    return content;
-}
-
 
 typedef std::list<std::pair<time_t, std::string> > log4x_history_t;
 struct log4x_value_t
@@ -285,619 +151,6 @@ struct log4x_value_t
     }
 };
 
-class Binary
-{
-public:
-    Binary(const void * buf, size_t len)
-    {
-        this->buf = (const char *)buf;
-        this->len = len;
-    }
-    const char * buf;
-    size_t  len;
-};
-
-class String
-{
-public:
-    String(const char * buf, size_t len)
-    {
-        this->buf = (const char *)buf;
-        this->len = len;
-    }
-    const char * buf;
-    size_t  len;
-};
-
-class Stream
-{
-public:
-    inline Stream(char * buf, int len);
-    inline int length()
-    {
-        return (int)(_cur - _begin);
-    }
-public:
-    inline Stream & writeLongLong(long long t, int width = 0, int dec = 10);
-    inline Stream & writeULongLong(unsigned long long t, int width = 0, int dec = 10);
-    inline Stream & writeDouble(double t, bool isSimple);
-    inline Stream & writePointer(const void * t);
-    inline Stream & writeString(const char * t)
-    {
-        return writeString(t, strlen(t));
-    };
-    inline Stream & writeString(const char * t, size_t len);
-    inline Stream & writeChar(char ch);
-    inline Stream & writeBinary(const Binary & t);
-public:
-    inline Stream & operator <<(const void * t)
-    {
-        return  writePointer(t);
-    }
-
-    inline Stream & operator <<(const char * t)
-    {
-        return writeString(t);
-    }
-
-    inline Stream & operator <<(bool t)
-    {
-        return (t ? writeString("true", 4) : writeString("false", 5));
-    }
-
-    inline Stream & operator <<(char t)
-    {
-        return writeChar(t);
-    }
-
-    inline Stream & operator <<(unsigned char t)
-    {
-        return writeULongLong(t);
-    }
-
-    inline Stream & operator <<(short t)
-    {
-        return writeLongLong(t);
-    }
-
-    inline Stream & operator <<(unsigned short t)
-    {
-        return writeULongLong(t);
-    }
-
-    inline Stream & operator <<(int t)
-    {
-        return writeLongLong(t);
-    }
-
-    inline Stream & operator <<(unsigned int t)
-    {
-        return writeULongLong(t);
-    }
-
-    inline Stream & operator <<(long t)
-    {
-        return writeLongLong(t);
-    }
-
-    inline Stream & operator <<(unsigned long t)
-    {
-        return writeULongLong(t);
-    }
-
-    inline Stream & operator <<(long long t)
-    {
-        return writeLongLong(t);
-    }
-
-    inline Stream & operator <<(unsigned long long t)
-    {
-        return writeULongLong(t);
-    }
-
-    inline Stream & operator <<(float t)
-    {
-        return writeDouble(t, true);
-    }
-
-    inline Stream & operator <<(double t)
-    {
-        return writeDouble(t, false);
-    }
-
-    template<class _Elem, class _Traits, class _Alloc> //support std::string, std::wstring
-    inline Stream & operator <<(const std::basic_string<_Elem, _Traits, _Alloc> & t)
-    {
-        return writeString(t.c_str(), t.length());
-    }
-
-    inline Stream & operator << (const Binary & binary)
-    {
-        return writeBinary(binary);
-    }
-
-    inline Stream & operator << (const String & str)
-    {
-        return writeString(str.buf, str.len);
-    }
-
-    template<class _Ty1, class _Ty2>
-    inline Stream & operator <<(const std::pair<_Ty1, _Ty2> & t)
-    {
-        return *this << "pair(" << t.first << ":" << t.second << ")";
-    }
-
-    template<class _Elem, class _Alloc>
-    inline Stream & operator <<(const std::vector<_Elem, _Alloc> & t)
-    {
-        *this << "vector(" << t.size() << ")[";
-        int inputCount = 0;
-        for (typename std::vector<_Elem, _Alloc>::const_iterator iter = t.begin(); iter != t.end(); iter++)
-        {
-            inputCount++;
-            if (inputCount > LOG4X_LOG_CONTAINER_DEPTH)
-            {
-                *this << "..., ";
-                break;
-            }
-            *this << *iter << ", ";
-        }
-        if (!t.empty())
-        {
-            _cur -= 2;
-        }
-        return *this << "]";
-    }
-
-    template<class _Elem, class _Alloc>
-    inline Stream & operator <<(const std::list<_Elem, _Alloc> & t)
-    {
-        *this << "list(" << t.size() << ")[";
-        int inputCount = 0;
-        for (typename std::list<_Elem, _Alloc>::const_iterator iter = t.begin(); iter != t.end(); iter++)
-        {
-            inputCount++;
-            if (inputCount > LOG4X_LOG_CONTAINER_DEPTH)
-            {
-                *this << "..., ";
-                break;
-            }
-            *this << *iter << ", ";
-        }
-        if (!t.empty())
-        {
-            _cur -= 2;
-        }
-        return *this << "]";
-    }
-
-    template<class _Elem, class _Alloc>
-    inline Stream & operator <<(const std::deque<_Elem, _Alloc> & t)
-    {
-        *this << "deque(" << t.size() << ")[";
-        int inputCount = 0;
-        for (typename std::deque<_Elem, _Alloc>::const_iterator iter = t.begin(); iter != t.end(); iter++)
-        {
-            inputCount++;
-            if (inputCount > LOG4X_LOG_CONTAINER_DEPTH)
-            {
-                *this << "..., ";
-                break;
-            }
-            *this << *iter << ", ";
-        }
-        if (!t.empty())
-        {
-            _cur -= 2;
-        }
-        return *this << "]";
-    }
-    template<class _Elem, class _Alloc>
-    inline Stream & operator <<(const std::queue<_Elem, _Alloc> & t)
-    {
-        *this << "queue(" << t.size() << ")[";
-        int inputCount = 0;
-        for (typename std::queue<_Elem, _Alloc>::const_iterator iter = t.begin(); iter != t.end(); iter++)
-        {
-            inputCount++;
-            if (inputCount > LOG4X_LOG_CONTAINER_DEPTH)
-            {
-                *this << "..., ";
-                break;
-            }
-            *this << *iter << ", ";
-        }
-        if (!t.empty())
-        {
-            _cur -= 2;
-        }
-        return *this << "]";
-    }
-    template<class _K, class _V, class _Pr, class _Alloc>
-    inline Stream & operator <<(const std::map<_K, _V, _Pr, _Alloc> & t)
-    {
-        *this << "map(" << t.size() << ")[";
-        int inputCount = 0;
-        for (typename std::map < _K, _V, _Pr, _Alloc>::const_iterator iter = t.begin(); iter != t.end(); iter++)
-        {
-            inputCount++;
-            if (inputCount > LOG4X_LOG_CONTAINER_DEPTH)
-            {
-                *this << "..., ";
-                break;
-            }
-            *this << *iter << ", ";
-        }
-        if (!t.empty())
-        {
-            _cur -= 2;
-        }
-        return *this << "]";
-    }
-
-private:
-    Stream() {}
-    Stream(Stream &) {}
-    char *  _begin;
-    char *  _end;
-    char *  _cur;
-};
-
-inline Stream::Stream(char * buf, int len)
-{
-    _begin = buf;
-    _end = buf + len;
-    _cur = _begin;
-}
-
-
-
-inline Stream & Stream::writeLongLong(long long t, int width, int dec)
-{
-    if (t < 0)
-    {
-        t = -t;
-        writeChar('-');
-    }
-    writeULongLong((unsigned long long)t, width, dec);
-    return *this;
-}
-
-inline Stream & Stream::writeULongLong(unsigned long long t, int width, int dec)
-{
-    static const char * lut =
-        "0123456789abcdef";
-
-    static const char *lutDec =
-        "00010203040506070809"
-        "10111213141516171819"
-        "20212223242526272829"
-        "30313233343536373839"
-        "40414243444546474849"
-        "50515253545556575859"
-        "60616263646566676869"
-        "70717273747576777879"
-        "80818283848586878889"
-        "90919293949596979899";
-
-    static const char *lutHex =
-        "000102030405060708090A0B0C0D0E0F"
-        "101112131415161718191A1B1C1D1E1F"
-        "202122232425262728292A2B2C2D2E2F"
-        "303132333435363738393A3B3C3D3E3F"
-        "404142434445464748494A4B4C4D4E4F"
-        "505152535455565758595A5B5C5D5E5F"
-        "606162636465666768696A6B6C6D6E6F"
-        "707172737475767778797A7B7C7D7E7F"
-        "808182838485868788898A8B8C8D8E8F"
-        "909192939495969798999A9B9C9D9E9F"
-        "A0A1A2A3A4A5A6A7A8A9AAABACADAEAF"
-        "B0B1B2B3B4B5B6B7B8B9BABBBCBDBEBF"
-        "C0C1C2C3C4C5C6C7C8C9CACBCCCDCECF"
-        "D0D1D2D3D4D5D6D7D8D9DADBDCDDDEDF"
-        "E0E1E2E3E4E5E6E7E8E9EAEBECEDEEEF"
-        "F0F1F2F3F4F5F6F7F8F9FAFBFCFDFEFF";
-
-    const unsigned long long cacheSize = 64;
-
-    if ((unsigned long long)(_end - _cur) > cacheSize)
-    {
-        char buf[cacheSize];
-        unsigned long long val = t;
-        unsigned long long i = cacheSize;
-        unsigned long long digit = 0;
-
-
-
-        if (dec == 10)
-        {
-            do
-            {
-                const unsigned long long m2 = (unsigned long long)((val % 100) * 2);
-                *(buf + i - 1) = lutDec[m2 + 1];
-                *(buf + i - 2) = lutDec[m2];
-                i -= 2;
-                val /= 100;
-                digit += 2;
-            }
-            while (val && i >= 2);
-            if (digit >= 2 && buf[cacheSize - digit] == '0')
-            {
-                digit--;
-            }
-        }
-        else if (dec == 16)
-        {
-            do
-            {
-                const unsigned long long m2 = (unsigned long long)((val % 256) * 2);
-                *(buf + i - 1) = lutHex[m2 + 1];
-                *(buf + i - 2) = lutHex[m2];
-                i -= 2;
-                val /= 256;
-                digit += 2;
-            }
-            while (val && i >= 2);
-            if (digit >= 2 && buf[cacheSize - digit] == '0')
-            {
-                digit--;
-            }
-        }
-        else
-        {
-            do
-            {
-                buf[--i] = lut[val % dec];
-                val /= dec;
-                digit++;
-            }
-            while (val && i > 0);
-        }
-
-        while (digit < (unsigned long long)width)
-        {
-            digit++;
-            buf[cacheSize - digit] = '0';
-        }
-
-        writeString(buf + (cacheSize - digit), (size_t)digit);
-    }
-    return *this;
-}
-inline Stream & Stream::writeDouble(double t, bool isSimple)
-{
-
-#if __cplusplus >= 201103L
-    using std::isnan;
-    using std::isinf;
-#endif
-    if (isnan(t))
-    {
-        writeString("nan", 3);
-        return *this;
-    }
-    else if (isinf(t))
-    {
-        writeString("inf", 3);
-        return *this;
-    }
-
-
-
-    size_t count = _end - _cur;
-    double fabst = fabs(t);
-    if (count > 30)
-    {
-        if (fabst < 0.0001 || (!isSimple && fabst > 4503599627370495ULL) || (isSimple && fabst > 8388607))
-        {
-            gcvt(t, isSimple ? 7 : 16, _cur);
-            size_t len = strlen(_cur);
-            if (len > count)
-            {
-                len = count;
-            }
-            _cur += len;
-            return *this;
-        }
-        else
-        {
-            if (t < 0.0)
-            {
-                writeChar('-');
-            }
-            double intpart = 0;
-            unsigned long long fractpart = (unsigned long long)(modf(fabst, &intpart) * 10000);
-            writeULongLong((unsigned long long)intpart);
-            if (fractpart > 0)
-            {
-                writeChar('.');
-                writeULongLong(fractpart, 4);
-            }
-        }
-    }
-
-    return *this;
-}
-
-inline Stream & Stream::writePointer(const void * t)
-{
-    sizeof(t) == 8 ?  writeULongLong((unsigned long long)t, 16, 16) : writeULongLong((unsigned long long)t, 8, 16);
-    return *this;
-}
-
-inline Stream & Stream::writeBinary(const Binary & t)
-{
-    writeString("\r\n\t[");
-    for (size_t i = 0; i < (t.len / 32) + 1; i++)
-    {
-        writeString("\r\n\t");
-        *this << (void*)(t.buf + i * 32);
-        writeString(": ");
-        for (size_t j = i * 32; j < (i + 1) * 32 && j < t.len; j++)
-        {
-            if (isprint((unsigned char)t.buf[j]))
-            {
-                writeChar(' ');
-                writeChar(t.buf[j]);
-                writeChar(' ');
-            }
-            else
-            {
-                *this << " . ";
-            }
-        }
-        writeString("\r\n\t");
-        *this << (void*)(t.buf + i * 32);
-        writeString(": ");
-        for (size_t j = i * 32; j < (i + 1) * 32 && j < t.len; j++)
-        {
-            writeULongLong((unsigned long long)(unsigned char)t.buf[j], 2, 16);
-            writeChar(' ');
-        }
-    }
-
-    writeString("\r\n\t]\r\n\t");
-    return *this;
-}
-inline Stream & Stream::writeChar(char ch)
-{
-    if (_end - _cur > 1)
-    {
-        _cur[0] = ch;
-        _cur++;
-    }
-    return *this;
-}
-
-inline Stream & Stream::writeString(const char * t, size_t len)
-{
-    size_t count = _end - _cur;
-    if (len > count)
-    {
-        len = count;
-    }
-    if (len > 0)
-    {
-        memcpy(_cur, t, len);
-        _cur += len;
-    }
-
-    return *this;
-}
-
-/**
- * Semaphore
- */
-class Semaphore
-{
-public:
-    Semaphore(long count = 0)
-        : _count(count)
-    {
-    }
-
-    void post()
-    {
-        std::unique_lock<std::mutex> lock(_mutex);
-        ++_count;
-        _cv.notify_one();
-    }
-
-    int wait(int msec)
-    {
-        std::unique_lock<std::mutex> lock(_mutex);
-        if (_cv.wait_for(lock, std::chrono::milliseconds(msec), [ = ] { return _count > 0; }))
-        {
-            --_count;
-
-            return 0;
-        }
-
-        return -1;
-    }
-
-private:
-    std::mutex              _mutex;
-    std::condition_variable _cv;
-    long _count;
-};
-
-/**
- * Thread
- */
-class Thread
-{
-public:
-    Thread();
-    virtual ~Thread();
-
-public:
-    int                start();
-    void               stop();
-
-    int                wait();
-
-protected:
-    virtual void       run() = 0;
-
-protected:
-    void               entry();
-
-protected:
-    bool               _active;
-    std::thread        _t;
-    std::mutex         _mutex;
-    Semaphore          _sem;
-};
-
-Thread::Thread()
-{
-    _active = false;
-}
-
-Thread::~Thread()
-{
-}
-
-int
-Thread::start()
-{
-    std::lock_guard<std::mutex> locker(_mutex);
-    if (_active)
-    {
-        return -1;
-    }
-
-    std::thread t(&Thread::entry, this);
-    _t = std::move(t);
-
-    return 0;
-}
-
-void
-Thread::stop()
-{
-    std::lock_guard<std::mutex> locker(_mutex);
-    if (!_active)
-    {
-        return;
-    }
-
-    _active = false;
-    _t.join();
-}
-
-void
-Thread::entry()
-{
-    {
-        std::lock_guard<std::mutex> locker(_mutex);
-        _active = true;
-    }
-
-    run();
-}
-
 /**
  * log4x
  */
@@ -915,9 +168,6 @@ public:
 protected:
     virtual int        config(const char * path);
     virtual int        configFromString(const char * str);
-#if 0
-    virtual int        create(const char * key) = 0;
-#endif
 
     virtual int        start();
     virtual void       stop();
@@ -963,145 +213,18 @@ protected:
 
     int                split(const std::string &str, const std::string &delimiter, std::pair<std::string, std::string> &pair);
     void               trim(std::string &str, const std::string &ignore = std::string("\r\n\t "));
-    void               showColorText(const char * text, int level);
 
     int                open(log4x_t * log);
     void               close(const std::string &key);
 
-    std::string        pname()
-    {
-        std::string name = "process";
-        char buf[260] = {0};
-#ifdef WIN32
-        if (GetModuleFileNameA(NULL, buf, 259) > 0)
-        {
-            name = buf;
-        }
-        std::string::size_type pos = name.rfind("\\");
-        if (pos != std::string::npos)
-        {
-            name = name.substr(pos + 1, std::string::npos);
-        }
-        pos = name.rfind(".");
-        if (pos != std::string::npos)
-        {
-            name = name.substr(0, pos - 0);
-        }
+    std::string        pname();
+    std::string        pid();
 
-#elif defined(LOG4X_HAVE_LIBPROC)
-        proc_name(getpid(), buf, 260);
-        name = buf;
-        return name;;
-#else
-        sprintf(buf, "/proc/%d/cmdline", (int)getpid());
-        File i;
-        i.open(buf, "rb");
-        if (!i.isOpen())
-        {
-            return name;
-        }
-        name = i.readLine();
-        i.close();
+    inline void        showColorText(const char * text, int level);
+    inline bool        isdir(std::string &path);
+    inline int         mkdir(std::string &path);
 
-        std::string::size_type pos = name.rfind("/");
-        if (pos != std::string::npos)
-        {
-            name = name.substr(pos + 1, std::string::npos);
-        }
-#endif
-
-        return name;
-    }
-
-    std::string        pid()
-    {
-        std::string pid = "0";
-        char buf[260] = {0};
-#ifdef WIN32
-        DWORD winPID = GetCurrentProcessId();
-        sprintf(buf, "%06u", winPID);
-        pid = buf;
-#else
-        sprintf(buf, "%06d", getpid());
-        pid = buf;
-#endif
-        return pid;
-    }
-
-    bool isdir(std::string &path)
-    {
-#ifdef WIN32
-        return PathIsDirectoryA(path.c_str()) ? true : false;
-#else
-        DIR * pdir = opendir(path.c_str());
-        if (pdir == NULL)
-        {
-            return false;
-        }
-        else
-        {
-            closedir(pdir);
-            pdir = NULL;
-            return true;
-        }
-#endif
-    }
-
-    int mkdir(std::string &path)
-    {
-        if (0 == path.length())
-        {
-            return -1;
-        }
-
-        for (std::string::iterator iter = path.begin(); iter != path.end(); ++iter)
-        {
-            if (*iter == '\\')
-            {
-                *iter = '/';
-            }
-        }
-        if (path.at(path.length() - 1) != '/')
-        {
-            path.append("/");
-        }
-
-        std::string::size_type pos = path.find('/');
-        while (pos != std::string::npos)
-        {
-            std::string cur = path.substr(0, pos - 0);
-            if (cur.length() > 0 && !isdir(cur))
-            {
-                bool result = false;
-#ifdef WIN32
-                result = CreateDirectoryA(cur.c_str(), NULL) ? true : false;
-#else
-                result = (::mkdir(cur.c_str(), S_IRWXU | S_IRWXG | S_IRWXO) == 0);
-#endif
-                if (!result)
-                {
-                    return -1;
-                }
-            }
-
-            pos = path.find('/', pos + 1);
-        }
-
-        return 0;
-    }
-
-    inline tm time2tm(time_t t)
-    {
-#ifdef WIN32
-        tm tt = {0};
-        localtime_s(&tt, &t);
-        return tt;
-#else
-        tm tt = {0};
-        localtime_r(&t, &tt);
-        return tt;
-#endif
-    }
+    inline tm          time2tm(time_t t);
 
 private:
     int               _hotInterval;
@@ -1923,7 +1046,7 @@ log4x::pop()
     return NULL;
 }
 
-void
+inline void
 log4x::showColorText(const char *text, int level)
 {
 #if defined(WIN32) && defined(LOG4X_OEM_CONSOLE)
@@ -2484,6 +1607,147 @@ log4x::isff(const char * key)
 
     return iter->second.fromfile;
 }
+
+std::string
+log4x::pname()
+{
+    std::string name = "process";
+    char buf[260] = {0};
+#ifdef WIN32
+    if (GetModuleFileNameA(NULL, buf, 259) > 0)
+    {
+        name = buf;
+    }
+    std::string::size_type pos = name.rfind("\\");
+    if (pos != std::string::npos)
+    {
+        name = name.substr(pos + 1, std::string::npos);
+    }
+    pos = name.rfind(".");
+    if (pos != std::string::npos)
+    {
+        name = name.substr(0, pos - 0);
+    }
+
+#elif defined(LOG4X_HAVE_LIBPROC)
+    proc_name(getpid(), buf, 260);
+    name = buf;
+    return name;;
+#else
+    sprintf(buf, "/proc/%d/cmdline", (int)getpid());
+    File i;
+    i.open(buf, "rb");
+    if (!i.isOpen())
+    {
+        return name;
+    }
+    name = i.readLine();
+    i.close();
+
+    std::string::size_type pos = name.rfind("/");
+    if (pos != std::string::npos)
+    {
+        name = name.substr(pos + 1, std::string::npos);
+    }
+#endif
+
+    return name;
+}
+
+std::string
+log4x::pid()
+{
+    std::string pid = "0";
+    char buf[260] = {0};
+#ifdef WIN32
+    DWORD winPID = GetCurrentProcessId();
+    sprintf(buf, "%06u", winPID);
+    pid = buf;
+#else
+    sprintf(buf, "%06d", getpid());
+    pid = buf;
+#endif
+    return pid;
+}
+
+inline bool
+log4x::isdir(std::string &path)
+{
+#ifdef WIN32
+    return PathIsDirectoryA(path.c_str()) ? true : false;
+#else
+    DIR * pdir = opendir(path.c_str());
+    if (pdir == NULL)
+    {
+        return false;
+    }
+    else
+    {
+        closedir(pdir);
+        pdir = NULL;
+        return true;
+    }
+#endif
+}
+
+inline int
+log4x::mkdir(std::string &path)
+{
+    if (0 == path.length())
+    {
+        return -1;
+    }
+
+    for (std::string::iterator iter = path.begin(); iter != path.end(); ++iter)
+    {
+        if (*iter == '\\')
+        {
+            *iter = '/';
+        }
+    }
+    if (path.at(path.length() - 1) != '/')
+    {
+        path.append("/");
+    }
+
+    std::string::size_type pos = path.find('/');
+    while (pos != std::string::npos)
+    {
+        std::string cur = path.substr(0, pos - 0);
+        if (cur.length() > 0 && !isdir(cur))
+        {
+            bool result = false;
+#ifdef WIN32
+            result = CreateDirectoryA(cur.c_str(), NULL) ? true : false;
+#else
+            result = (::mkdir(cur.c_str(), S_IRWXU | S_IRWXG | S_IRWXO) == 0);
+#endif
+            if (!result)
+            {
+                return -1;
+            }
+        }
+
+        pos = path.find('/', pos + 1);
+    }
+
+    return 0;
+}
+
+inline tm
+log4x::time2tm(time_t t)
+{
+#ifdef WIN32
+    tm tt = {0};
+    localtime_s(&tt, &t);
+    return tt;
+#else
+    tm tt = {0};
+    localtime_r(&t, &tt);
+    return tt;
+#endif
+}
+
 /**
  * ilog4x
  */

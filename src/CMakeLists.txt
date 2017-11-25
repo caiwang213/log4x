@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 2.8)
 
 project(liblog4x)
 
-set(SOURCES log4x.cpp)
+#set(SOURCES log4x.cpp file.cpp)
+aux_source_directory(. SOURCES)
+
 set(HEADERS log4x.h)
 
 if(MSVC)
