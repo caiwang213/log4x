@@ -18,7 +18,7 @@ set(LOG4X_SRC_DIR ${PROJECT_SOURCE_DIR}/src)
 
 if(NOT MSVC)
     #set(CMAKE_CXX_FLAGS "-std=c++11 -pthread ${CMAKE_CXX_FLAGS}")
-    add_definitions(-std=c++11 -pthread)
+    add_definitions(-std=c++11)
 endif()
 
 message(STATUS "C++ flags have ${CMAKE_CXX_FLAGS}")

@@ -20,3 +20,15 @@ MSVC Win64 Release
      $ cmake -DCMAKE_INSTALL_PREFIX=$PWD/install -DCMAKE_BUILD_TYPE=Debug -DCMAKE_DEBUG_POSTFIX="_d" ..     # Default to Unix Makefiles.
      $ make
      $ make install
+
+## CMake (Android)
+
+     $ mkdir build && cd build
+     $ cmake \ 
+            -DCMAKE_INSTALL_PREFIX=$PWD/install \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_DEBUG_POSTFIX="_d" \
+            -DCMAKE_TOOLCHAIN_FILE=android.toolchain.cmake \
+            -G "Unix Makefiles" ..
+     $ make
+     $ make install
