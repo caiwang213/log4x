@@ -5,6 +5,10 @@ project(liblog4x)
 set(SOURCES log4x.cpp)
 set(HEADERS log4x.h)
 
+if(MSVC)
+    add_definitions(-DLOG4X_EXPORTS)
+endif()
+
 if(BUILD_SHARED_LIBS)
     add_library(log4x SHARED ${SOURCES} ${HEADERS})
     install(TARGETS log4x DESTINATION lib)

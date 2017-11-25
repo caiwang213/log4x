@@ -13,6 +13,7 @@ endif()
 
 if(BUILD_STATIC_LIBS)
     add_executable(log4x_test_static main.cpp)
+    add_definitions(-DLOG4X_STATICLIB)
     target_link_libraries(log4x_test_static log4x_static)
     #set_target_properties(log4x_test_static PROPERTIES OUTPUT_NAME "log4x_test_static")
     install(TARGETS log4x_test_static DESTINATION bin)
