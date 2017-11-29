@@ -189,9 +189,9 @@ protected:
     virtual int        setmonthdir(const char * key, bool enable);
     virtual int        setReserve(const char * key, unsigned int sec);
 
+    virtual void       setAutoUpdate(int interval);
+    virtual int        update();
 #if 0
-    virtual int        setAutoUpdate(int interval) = 0;
-    virtual int        updateConfig() = 0;
 
     virtual bool       isEnable(const char * key) = 0;
 
@@ -259,7 +259,7 @@ private:
 
 log4x::log4x()
 {
-    _hotInterval = 0;
+    _hotInterval = 30;
     _totalCount  = 0;
     _totalBytes  = 0;
     _totalPush   = 0;
@@ -285,7 +285,7 @@ log4x::config(const char * path)
         if (!_path.empty())
         {
             printf(" !!! !!! !!! !!!\r\n");
-            printf(" !!! !!! log4z configure error: too many calls to Config. the old config file=%s,  the new config file=%s !!! !!! \r\n"
+            printf(" !!! !!! log4x configure error: too many calls to Config. the old config file=%s,  the new config file=%s !!! !!! \r\n"
                    , _path.c_str(), path);
             printf(" !!! !!! !!! !!!\r\n");
 
@@ -299,7 +299,7 @@ log4x::config(const char * path)
         if (!f.isOpen())
         {
             printf(" !!! !!! !!! !!!\r\n");
-            printf(" !!! !!! log4z load config file error. filename=%s  !!! !!! \r\n", path);
+            printf(" !!! !!! log4x load config file error. filename=%s  !!! !!! \r\n", path);
             printf(" !!! !!! !!! !!!\r\n");
 
             break;
@@ -351,7 +351,7 @@ int log4x::parse(const std::string &str)
     if (parse(str, values) < 0)
     {
         printf(" !!! !!! !!! !!!\r\n");
-        printf(" !!! !!! log4z load config file error \r\n");
+        printf(" !!! !!! log4x load config file error \r\n");
         printf(" !!! !!! !!! !!!\r\n");
 
         return -1;
@@ -457,7 +457,7 @@ void log4x::parse(const std::string& line, int number, std::string & key, std::m
         }
         else
         {
-            printf("log4z configure warning: duplicate logger key:[%s] at line: %d \r\n", key.c_str(), number);
+            printf("log4x configure warning: duplicate logger key:[%s] at line: %d \r\n", key.c_str(), number);
         }
 
         return;
@@ -469,7 +469,7 @@ void log4x::parse(const std::string& line, int number, std::string & key, std::m
     std::map<std::string, log4x_value_t>::iterator iter = values.find(key);
     if (iter == values.end())
     {
-        printf("log4z configure warning: not found current logger name:[%s] at line:%d, key=%s, value=%s \r\n",
+        printf("log4x configure warning: not found current logger name:[%s] at line:%d, key=%s, value=%s \r\n",
                key.c_str(), number, kv.first.c_str(), kv.second.c_str());
         return;
     }
@@ -1097,7 +1097,7 @@ int log4x::open(log4x_t * log)
         std::map<std::string, log4x_value_t>::const_iterator iter = _keys.find(log->key);
         if (iter == _keys.end())
         {
-            showColorText("log4z: openLogger can not open, invalide logger id! \r\n", LOG_LEVEL_FATAL);
+            showColorText("log4x: openLogger can not open, invalide logger id! \r\n", LOG_LEVEL_FATAL);
 
             return -1;
         }
@@ -1150,7 +1150,7 @@ int log4x::open(log4x_t * log)
         path = value->path;
 
 
-        char buf[500] = { 0 };
+        char buf[500] = {0};
         if (value->monthdir)
         {
             sprintf(buf, "%04d_%02d/", lt.tm_year + 1900, lt.tm_mon + 1);
@@ -1181,10 +1181,10 @@ int log4x::open(log4x_t * log)
         long flen = value->fhandle.open(path.c_str(), "ab");
         if (!value->fhandle.isOpen() || flen < 0)
         {
-            sprintf(buf, "log4z: can not open log file %s. \r\n", path.c_str());
-            showColorText("!!!!!!!!!!!!!!!!!!!!!!!!!! \r\n", LOG_LEVEL_FATAL);
+            sprintf(buf, "log4x: can not open log file %s. \r\n", path.c_str());
+            showColorText("!!!!!!!!!!!!!!!!!!!!!!!!!!\r\n", LOG_LEVEL_FATAL);
             showColorText(buf, LOG_LEVEL_FATAL);
-            showColorText("!!!!!!!!!!!!!!!!!!!!!!!!!! \r\n", LOG_LEVEL_FATAL);
+            showColorText("!!!!!!!!!!!!!!!!!!!!!!!!!!\r\n", LOG_LEVEL_FATAL);
             value->outfile = false;
 
             return -1;
@@ -1221,7 +1221,7 @@ void log4x::close(const std::string &key)
         std::map<std::string, log4x_value_t>::const_iterator iter = _keys.find(key);
         if (iter == _keys.end())
         {
-            showColorText("log4z: openLogger can not open, invalide logger id! \r\n", LOG_LEVEL_FATAL);
+            showColorText("log4x: openLogger can not open, invalide logger id! \r\n", LOG_LEVEL_FATAL);
 
             return;
         }
@@ -1253,9 +1253,9 @@ log4x::run()
 
     _sem.post();
 
-    log4x_t * log = NULL;
-    /* int needFlush[LOG4X_LOGGER_MAX] = {0}; */
-    /* time_t lastCheckUpdate = time(NULL); */
+    log4x_t * log     = NULL;
+    time_t    lastupd = time(NULL);
+
     std::map<std::string, bool> fflags;
 
     while (true)
@@ -1350,11 +1350,11 @@ log4x::run()
             break;
         }
 
-        /* if (_hotUpdateInterval != 0 && time(NULL) - lastCheckUpdate > _hotUpdateInterval) */
-        /* { */
-        /*     updateConfig(); */
-        /*     lastCheckUpdate = time(NULL); */
-        /* } */
+        if (_hotInterval != 0 && (time(NULL) - lastupd) > _hotInterval)
+        {
+            update();
+            lastupd = time(NULL);
+        }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
@@ -1587,6 +1587,32 @@ log4x::setReserve(const char * key, unsigned int sec)
     iter->second.reserve = sec;
 
     return 0;
+}
+
+void
+log4x::setAutoUpdate(int interval)
+{
+    _hotInterval = interval;
+}
+
+int
+log4x::update()
+{
+    if (_path.empty())
+    {
+        return -1;
+    }
+
+    File f;
+    f.open(_path.c_str(), "rb");
+    if (!f.isOpen())
+    {
+        LOGE("!!! !!! log4x load config file error. filename " << _path);
+
+        return -1;
+    }
+
+    return parse(f.readContent());
 }
 
 bool

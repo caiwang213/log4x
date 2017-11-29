@@ -99,9 +99,9 @@ public:
     virtual int        setlimit(const char * key, unsigned int limitsize) = 0;
     virtual int        setmonthdir(const char * key, bool enable) = 0;
     virtual int        setReserve(const char * key, unsigned int sec) = 0;
+
+    virtual void       setAutoUpdate(int interval) = 0;
 #if 0
-    virtual int        setAutoUpdate(int interval) = 0;
-    virtual int        updateConfig() = 0;
 
     virtual bool       isEnable(const char * key) = 0;
 

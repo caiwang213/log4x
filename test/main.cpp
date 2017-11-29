@@ -93,40 +93,41 @@ int main(int argc, char *argv[])
     result = i->start();
     result = i->start();
 
-    /* LOG4X_DEBUG_LEVEL("main", LOG_LEVEL_DEBUG); */
+    i->setAutoUpdate(10);
+    LOG4X_DEBUG_LEVEL("main", LOG_LEVEL_DEBUG);
 
-    /* std::thread t0(f0, 0, "main"); */
-    /* std::thread t1(f1, 1, "main"); */
-    /* std::thread t2(f2, 2, "main"); */
-    /* std::thread t3(f3, 3, "main"); */
-    /* std::thread t4(f4, 4, "main"); */
-    /* std::thread t5(f5, 5, "main"); */
+    std::thread t0(f0, 0, "main");
+    std::thread t1(f1, 1, "main");
+    std::thread t2(f2, 2, "main");
+    std::thread t3(f3, 3, "main");
+    std::thread t4(f4, 4, "main");
+    std::thread t5(f5, 5, "main");
 
-    LOG4X_DEBUG_LEVEL("test", LOG_LEVEL_TRACE);
-    std::thread tt0(f0, 0, "test");
-    std::thread tt1(f1, 1, "test");
-    std::thread tt2(f2, 2, "test");
-    std::thread tt3(f3, 3, "test");
-    std::thread tt4(f4, 4, "test");
-    std::thread tt5(f5, 5, "test");
+    /* LOG4X_DEBUG_LEVEL("test", LOG_LEVEL_TRACE); */
+    /* std::thread tt0(f0, 0, "test"); */
+    /* std::thread tt1(f1, 1, "test"); */
+    /* std::thread tt2(f2, 2, "test"); */
+    /* std::thread tt3(f3, 3, "test"); */
+    /* std::thread tt4(f4, 4, "test"); */
+    /* std::thread tt5(f5, 5, "test"); */
 
     getchar();
 
     run = false;
 
-    /* t0.join(); */
-    /* t1.join(); */
-    /* t2.join(); */
-    /* t3.join(); */
-    /* t4.join(); */
-    /* t5.join(); */
+    t0.join();
+    t1.join();
+    t2.join();
+    t3.join();
+    t4.join();
+    t5.join();
 
-    tt0.join();
-    tt1.join();
-    tt2.join();
-    tt3.join();
-    tt4.join();
-    tt5.join();
+    /* tt0.join(); */
+    /* tt1.join(); */
+    /* tt2.join(); */
+    /* tt3.join(); */
+    /* tt4.join(); */
+    /* tt5.join(); */
 
     i->stop();
 
